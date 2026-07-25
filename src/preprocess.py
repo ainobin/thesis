@@ -16,8 +16,9 @@ Pipeline:
   8. Add channel dim   → (128, time_steps, 1)
 
 Usage:
-  from src.preprocess import preprocess_audio
+  from src.preprocess import preprocess_audio, audio_to_mel
   feat = preprocess_audio("path/to/file.wav")     # → ndarray (128, 130, 1)
+  feat = audio_to_mel(y, sr)                       # → ndarray (128, 130, 1)
 """
 
 import librosa
@@ -31,10 +32,8 @@ N_FFT = 2048
 HOP_LENGTH = 512
 
 
-def preprocess_audio(file_path: str) -> np.ndarray:
-    y, _ = librosa.load(file_path, sr=SR, mono=True)
-
-    y = nr.reduce_noise(y=y, sr=SR, stationary=False, prop_decrease=0.85)
+def audio_to_mel(y: np.ndarray, sr: int) -> np.ndarray:
+    y = nr.reduce_noise(y=y, sr=sr, stationary=False, prop_decrease=0.85)
 
     y, _ = librosa.effects.trim(y, top_db=30)
 
@@ -48,7 +47,7 @@ def preprocess_audio(file_path: str) -> np.ndarray:
         y = y[start : start + FIXED_SAMPLES]
 
     mel = librosa.feature.melspectrogram(
-        y=y, sr=SR, n_mels=N_MELS, n_fft=N_FFT, hop_length=HOP_LENGTH
+        y=y, sr=sr, n_mels=N_MELS, n_fft=N_FFT, hop_length=HOP_LENGTH
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
 
@@ -59,3 +58,8 @@ def preprocess_audio(file_path: str) -> np.ndarray:
         mel_norm = np.zeros_like(mel_db)
 
     return mel_norm.astype(np.float32)[..., np.newaxis]
+
+
+def preprocess_audio(file_path: str) -> np.ndarray:
+    y, sr = librosa.load(file_path, sr=SR, mono=True)
+    return audio_to_mel(y, sr)

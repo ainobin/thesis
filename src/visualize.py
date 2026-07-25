@@ -30,6 +30,8 @@ from sklearn.metrics import (
     confusion_matrix,
     ConfusionMatrixDisplay,
     roc_curve,
+    accuracy_score,
+    precision_recall_fscore_support,
 )
 from tensorflow.keras.models import load_model
 
@@ -200,6 +202,33 @@ def plot_training_curves():
     print(f"  Saved {path}")
 
 
+def bootstrap_ci(y_true, y_pred_proba, n_iterations=1000, alpha=0.05, random_state=42):
+    rng = np.random.default_rng(random_state)
+    n = len(y_true)
+    metrics = {"accuracy": [], "precision": [], "recall": [], "f1": []}
+
+    for _ in range(n_iterations):
+        idx = rng.choice(n, n, replace=True)
+        y_true_boot = y_true[idx]
+        y_pred_boot = y_pred_proba[idx].argmax(axis=1)
+
+        metrics["accuracy"].append(accuracy_score(y_true_boot, y_pred_boot))
+        p, r, f1, _ = precision_recall_fscore_support(
+            y_true_boot, y_pred_boot, average="binary", labels=[0, 1], zero_division=0
+        )
+        metrics["precision"].append(p)
+        metrics["recall"].append(r)
+        metrics["f1"].append(f1)
+
+    ci = {}
+    for metric, values in metrics.items():
+        values_sorted = sorted(values)
+        lower = values_sorted[int(n_iterations * alpha / 2)]
+        upper = values_sorted[int(n_iterations * (1 - alpha / 2))]
+        ci[metric] = (lower, upper)
+    return ci
+
+
 def main():
     print("Loading data ...")
     X_train, y_train, X_val, y_val, X_test, y_test = _load_data()
@@ -232,14 +261,31 @@ def main():
         r = cm[i, i] / cm[i, :].sum() if cm[i, :].sum() > 0 else 0.0
         f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
         print(f"  {label:<12} {p:<12.4f} {r:<12.4f} {f1:<12.4f} {support:<10}")
+
+    print("\n--- Bootstrap 95% Confidence Intervals (1000 iterations) ---")
+    ci = bootstrap_ci(y_test, y_prob)
+    print(f"  {'Metric':<12} {'Point Est.':<12} {'95% CI':<24}")
+    print(f"  {'-'*48}")
+    point_acc = accuracy_score(y_test, y_pred)
+    point_p, point_r, point_f1, _ = precision_recall_fscore_support(
+        y_test, y_pred, average="binary", labels=[0, 1], zero_division=0
+    )
+    print(f"  {'Accuracy':<12} {point_acc:<12.4f} ({ci['accuracy'][0]:.4f}, {ci['accuracy'][1]:.4f})")
+    print(f"  {'Precision':<12} {point_p:<12.4f} ({ci['precision'][0]:.4f}, {ci['precision'][1]:.4f})")
+    print(f"  {'Recall':<12} {point_r:<12.4f} ({ci['recall'][0]:.4f}, {ci['recall'][1]:.4f})")
+    print(f"  {'F1':<12} {point_f1:<12.4f} ({ci['f1'][0]:.4f}, {ci['f1'][1]:.4f})")
+
     print(f"\n  ROC AUC: {roc_auc:.4f}  |  PR AUC: {pr_auc:.4f}")
 
     results = {
-        "test_accuracy": float((y_test == y_pred).mean()),
-        "test_f1": float(2 * (cm[1, 1] / (cm[1, 1] + (cm[0, 1] + cm[1, 0]) / 2)) if (cm[1, 1] + (cm[0, 1] + cm[1, 0]) / 2) > 0 else 0.0),
+        "test_accuracy": float(point_acc),
+        "test_f1": float(point_f1),
+        "test_precision": float(point_p),
+        "test_recall": float(point_r),
         "roc_auc": float(roc_auc),
         "pr_auc": float(pr_auc),
         "confusion_matrix": cm.tolist(),
+        "bootstrap_ci_95": {k: [float(v[0]), float(v[1])] for k, v in ci.items()},
     }
     np.save(os.path.join(MODELS_DIR, "results_summary.npy"), results)
 

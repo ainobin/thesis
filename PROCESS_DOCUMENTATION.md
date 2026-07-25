@@ -40,8 +40,9 @@ This was added to both `src/batch_process.py` and `src/train.py`.
 | File | Description |
 |---|---|
 | `init_workspace.py` | Creates required directory tree |
-| `src/preprocess.py` | Audio → Mel-spectrogram pipeline |
-| `src/batch_process.py` | Batch process all raw audio, stratify split, save `.npy` |
+| `src/preprocess.py` | Audio → Mel-spectrogram pipeline (refactored: `audio_to_mel()` for raw arrays) |
+| `src/augment.py` | Waveform augmentation: pitch shift, time stretch, additive noise |
+| `src/batch_process.py` | Batch process + stratify split + augment training set, save `.npy` |
 
 ### `init_workspace.py`
 
@@ -97,15 +98,26 @@ N_FFT = 2048
 HOP_LENGTH = 512
 ```
 
+### `src/augment.py`
+
+Three waveform-level augmentation functions applied to the raw audio before spectrogram conversion:
+
+| Function | Description | Parameters |
+|---|---|---|
+| `pitch_shift(y, sr, n_steps=2)` | Shift pitch ±2 semitones | `n_steps` |
+| `time_stretch(y, rate=1.1)` | Stretch time by 10% | `rate` |
+| `add_noise(y, noise_factor=0.005)` | Add Gaussian noise | `noise_factor` |
+
 ### `src/batch_process.py`
 
 Pipeline runner:
 
 1. Scans `data/raw/grade_a/` (label 0) and `data/raw/grade_b/` (label 1)
-2. Processes each file through `preprocess_audio()`
-3. Stacks features into `X` with shape `(N, 128, 130, 1)`
-4. Stratified 70/15/15 split via `train_test_split` (two calls)
-5. Saves 6 files to `data/processed/`: `X_train.npy`, `y_train.npy`, `X_val.npy`, `y_val.npy`, `X_test.npy`, `y_test.npy`
+2. Stratified 70/15/15 split by file index (before processing)
+3. Processing each file through `preprocess_audio()`
+4. **Training set only:** also applies 4 augmentations (pitch+2, pitch-2, time stretch, noise) to each sample → 5× expansion
+5. Stacks features into `X` with shape `(N, 128, 130, 1)`
+6. Saves 6 files to `data/processed/`: `X_train.npy`, `y_train.npy`, `X_val.npy`, `y_val.npy`, `X_test.npy`, `y_test.npy`
 
 **Fix applied:** Changed `np.concatenate(X, axis=0)` to `np.stack(X, axis=0)` — the original was merging along the Mel axis instead of stacking samples.
 
@@ -186,6 +198,10 @@ Input:          (128, 130, 1)
 └─ Dense(2, Softmax)                                    → (2)
 ```
 
+`build_cnn()` now accepts `dropout` and `l2_reg` parameters (defaults: 0.5, 1e-4).
+
+`build_cnn()` now accepts `dropout` and `l2_reg` parameters (defaults: 0.5, 1e-4).
+
 Total params: 110,338 (431 KB)
 
 ### `src/train.py`
@@ -241,7 +257,8 @@ print('Saved training_curves.png')
 | File | Description |
 |---|---|
 | `src/evaluate.py` | Test-set evaluation, metrics, confusion matrix, ROC |
-| `src/hparam_search.py` | Grid search over 16 hyperparameter combinations |
+| `src/hparam_search.py` | Grid search over 16 hyperparameter combinations (refactored: uses `build_cnn()` instead of duplicating model) |
+| `src/baselines.py` | SVM (RBF) + Random Forest baselines on flattened spectrograms |
 
 ### `src/evaluate.py`
 
@@ -300,6 +317,21 @@ Best val_acc: 0.6000
 ```
 
 Saved to `models/best_hparams.npy`.
+
+### `src/baselines.py` — Baseline Comparisons
+
+Two traditional ML baselines for comparison:
+
+| Model | Features | Approach |
+|---|---|---|
+| SVM (RBF kernel) | Flattened Mel-spectrogram (16640 dims) | `class_weight="balanced"` |
+| Random Forest (200 trees) | Flattened Mel-spectrogram (16640 dims) | `max_depth=20`, `class_weight="balanced"` |
+
+**Execution:**
+
+```bash
+python src/baselines.py
+```
 
 ### Retrain final model with best config
 
@@ -369,6 +401,8 @@ np.save('models/results_summary.npy', results)
 |---|---|
 | `src/visualize.py` | Generates all 7 figures + per-class metrics table |
 
+`visualize.py` also computes **bootstrap 95% confidence intervals** (1000 iterations) for accuracy, precision, recall, and F1 on the test set.
+
 ### `src/visualize.py` — Figures Generated
 
 | # | Figure | Description |
@@ -403,6 +437,12 @@ python src/visualize.py
   Grade B     p=0.4000    r=1.0000    f1=0.5714    support=2
 
   ROC AUC: 1.0000  |  PR AUC: 1.0000
+
+  Bootstrap 95% CI:
+    Accuracy:  (0.0000, 0.8000)
+    Precision: (0.2000, 0.8000)
+    Recall:    (0.0000, 1.0000)
+    F1:        (0.0000, 0.7273)
 ```
 
 ---
@@ -420,20 +460,22 @@ python src/visualize.py
 │   │   ├── grade_a/          ← 15 .wav files
 │   │   └── grade_b/          ← 15 .wav files
 │   └── processed/
-│       ├── X_train.npy       (20, 128, 130, 1)
-│       ├── y_train.npy       (20,)
+│       ├── X_train.npy       (N×5, 128, 130, 1)  ← augmented
+│       ├── y_train.npy       (N×5,)
 │       ├── X_val.npy         (5, 128, 130, 1)
 │       ├── y_val.npy         (5,)
 │       ├── X_test.npy        (5, 128, 130, 1)
 │       └── y_test.npy        (5,)
 ├── src/
 │   ├── preprocess.py         Audio → Mel-spectrogram pipeline
-│   ├── batch_process.py      Batch processor + stratified split
-│   ├── model.py              CNN model definition
+│   ├── augment.py            Waveform augmentation (pitch, time, noise)
+│   ├── batch_process.py      Batch processor + stratified split + augmentation
+│   ├── model.py              CNN model definition (parameterized dropout/L2)
 │   ├── train.py              Training loop
 │   ├── evaluate.py           Test-set evaluation
-│   ├── hparam_search.py      Hyperparameter grid search
-│   └── visualize.py          All figures + metrics
+│   ├── hparam_search.py      Hyperparameter grid search (uses build_cnn)
+│   ├── baselines.py          SVM + Random Forest baselines
+│   └── visualize.py          All figures + metrics + bootstrap CI
 ├── models/
 │   ├── best.keras            1.4 MB  (from initial train)
 │   ├── final_best.keras      1.4 MB  (retrained with best hparams)

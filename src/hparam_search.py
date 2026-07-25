@@ -49,30 +49,6 @@ HPO_EPOCHS = 30
 HPO_PATIENCE = 8
 
 
-def build_model(input_shape, dropout, l2_reg):
-    from tensorflow.keras import layers, Model, regularizers
-
-    inp = layers.Input(shape=input_shape)
-    x = layers.Conv2D(32, (3, 3), padding="same", activation="relu")(inp)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-
-    x = layers.Conv2D(64, (3, 3), padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-
-    x = layers.Conv2D(128, (3, 3), padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.GlobalAveragePooling2D()(x)
-
-    x = layers.Dense(128, activation="relu",
-                     kernel_regularizer=regularizers.l2(l2_reg))(x)
-    x = layers.Dropout(dropout)(x)
-    out = layers.Dense(2, activation="softmax")(x)
-
-    return Model(inputs=inp, outputs=out, name="brick_ndt_cnn")
-
-
 def main():
     print("Loading data ...")
     X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"))
@@ -96,7 +72,7 @@ def main():
 
         print(f"[{i+1}/{total}]  lr={lr}  dropout={dropout}  l2={l2_reg}  batch={bs}")
 
-        model = build_model(X_train.shape[1:], dropout, l2_reg)
+        model = build_cnn(X_train.shape[1:], num_classes=2, dropout=dropout, l2_reg=l2_reg)
         model.compile(
             optimizer=Adam(learning_rate=lr),
             loss="sparse_categorical_crossentropy",

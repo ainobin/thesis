@@ -23,7 +23,7 @@ This system classifies bricks into two grades (Grade A / Grade B) by analyzing t
 **Key components:**
 - **Audio Preprocessing** (`preprocess.py`): Raw audio → normalized Mel-spectrograms
 - **Augmentation** (`augment.py`): Waveform-level perturbations to expand small datasets
-- **Batch Processing** (`batch_process.py`): Orchestrates loading, splitting, augmenting, saving
+- **Batch Processing** (`batch_process.py`): Orchestrates loading, augmenting all files, splitting, saving
 - **CNN Model** (`model.py`): 2D CNN architecture (~110K parameters)
 - **Training** (`train.py`): Training loop with callbacks
 - **Evaluation** (`evaluate.py`): Test-set metrics and figures
@@ -49,36 +49,41 @@ This system classifies bricks into two grades (Grade A / Grade B) by analyzing t
                                      | librosa.load(sr=22050, mono=True)
                                      v
                            +---------+---------+
+                           |  PREROCESSING +   |
+                           |  AUGMENTATION     |
+                           |  (applied to all  |
+                           |   30 files)       |
+                           |                   |
+                           |  For each file:   |
+                           |  1. preprocess    |
+                           |     audio→mel     |
+                           |  2. pitch_shift+2 |
+                           |  3. pitch_shift-2 |
+                           |  4. time_stretch  |
+                           |  5. add_noise     |
+                           +---------+---------+
+                                     |
+                                     | 30 × 5 = 150 samples
+                                     v
+                           +---------+---------+
                            |  STRATIFIED SPLIT |
-                           |  70/15/15 split   |
-                           | (by file index)   |
+                           |  70/15/15 on 150  |
                            +----+----+----+----+
                                 |    |    |
                    +------------+    |    +------------+
                    |                 |                 |
                    v                 v                 v
            +-------+-------+  +-----+-----+  +--------+------+
-           |   TRAIN SET    |  |  VAL SET   |  |   TEST SET   |
-           |  (20 files)    |  |  (5 files)  |  |  (5 files)   |
+           |   TRAIN        |  |  VAL       |  |  TEST        |
+           |  ~105 samples  |  |  ~22       |  |  ~23         |
+           |  (128,130,1)   |  |  samples   |  |  samples     |
            +-------+-------+  +------+------+  +-------+------+
                    |                  |                 |
-                   |  preprocess      |  preprocess    |  preprocess
                    v                  v                 v
            +-------+-------+  +------+------+  +-------+------+
-           |  Mel-spectro   |  |  Mel-spectro |  |  Mel-spectro|
-           |  gram (128,130) |  |  gram (5)    |  |  gram (5)   |
+           | X_train.npy   |  | X_val.npy   |  | X_test.npy   |
+           | y_train.npy   |  | y_val.npy   |  | y_test.npy   |
            +-------+-------+  +------+------+  +-------+------+
-                   |
-                   | AUGMENTATION (×4 per file)
-                   |   pitch_shift(+2)
-                   |   pitch_shift(-2)
-                   |   time_stretch(1.1)
-                   |   add_noise(0.005)
-                   v
-           +-------+-------+
-           | X_train (100)  |   5× expansion:
-           | (128,130,1)    |   20 orig + 80 aug
-           +----------------+
                    |
                    v
            +----------------+      +----------------+
@@ -135,7 +140,8 @@ Step 2: Raw Data Collection (Manual)
 
 Step 3: Batch Preprocessing
   └─ python src/batch_process.py
-  └─ Converts all audio → Mel-spectrograms, splits, augments, saves .npy
+  └─ Converts all audio → Mel-spectrograms, augments ALL files
+      (4× each), then splits 70/15/15, saves .npy
 
 Step 4 (Optional): Hyperparameter Search
   └─ python src/hparam_search.py
@@ -202,16 +208,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | Uses `glob.glob()` with extension patterns; yields `(filepath, label)` tuples; supports multiple audio formats |
 | **Outcome** | Complete list of all data files with their class labels |
 
-#### 3b. Stratified Train/Val/Test Split
-
-| Aspect | Detail |
-|--------|--------|
-| **What it does** | Splits file indices into 70% train, 15% validation, 15% test while preserving class proportions |
-| **Why needed** | Ensures each split has representative class distribution; prevents data leakage by splitting before any processing |
-| **Logic** | Two-stage `train_test_split` with `stratify` parameter: first splits off 15% as test, then splits 15/85 of remaining as val; `random_state=42` ensures reproducibility |
-| **Outcome** | Three index arrays: train (20 files), val (5 files), test (5 files) with balanced classes |
-
-#### 3c. Audio Loading (`librosa.load`)
+#### 3b. Audio Loading (`librosa.load`)
 
 | Aspect | Detail |
 |--------|--------|
@@ -220,7 +217,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `sr=SR` resamples to exactly 22050 Hz (standard for speech/audio ML); `mono=True` collapses stereo to single channel reducing data dimensionality |
 | **Outcome** | Raw waveform `y` of shape `(N,)` where N = samples at 22050 Hz |
 
-#### 3d. Noise Reduction (`noisereduce.reduce_noise`)
+#### 3c. Noise Reduction (`noisereduce.reduce_noise`)
 
 | Aspect | Detail |
 |--------|--------|
@@ -229,7 +226,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `stationary=False` uses non-stationary noise reduction (better for varying noise); `prop_decrease=0.85` reduces noise by 85% (aggressive but preserves signal) |
 | **Outcome** | Cleaned waveform with reduced background noise |
 
-#### 3e. Silence Trimming (`librosa.effects.trim`)
+#### 3d. Silence Trimming (`librosa.effects.trim`)
 
 | Aspect | Detail |
 |--------|--------|
@@ -238,7 +235,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `top_db=30` — frames below 30 dB relative to max are considered silence and removed |
 | **Outcome** | Trimmed waveform containing only the active brick strike sound |
 
-#### 3f. Length Normalization (Pad/Crop to 3 seconds)
+#### 3e. Length Normalization (Pad/Crop to 3 seconds)
 
 | Aspect | Detail |
 |--------|--------|
@@ -247,7 +244,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | If shorter: pad equally on both sides (preserves temporal alignment); if longer: center-crop (assumes strike is in the middle). 3 seconds is generous to capture full strike + resonance |
 | **Outcome** | Uniform-length waveform: exactly 66150 samples |
 
-#### 3g. Mel-Spectrogram Conversion
+#### 3f. Mel-Spectrogram Conversion
 
 | Aspect | Detail |
 |--------|--------|
@@ -256,7 +253,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `n_mels=128` provides good frequency resolution; `hop_length=512` gives ~46 frames/second; 130 time frames from 66150/512 ≈ 129.2 → 130 |
 | **Outcome** | 2D array (128 × 130) representing time-frequency energy distribution |
 
-#### 3h. Log Amplitude Conversion (`power_to_db`)
+#### 3g. Log Amplitude Conversion (`power_to_db`)
 
 | Aspect | Detail |
 |--------|--------|
@@ -265,7 +262,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `ref=np.max` normalizes so the loudest point is 0 dB; all other values become negative dB |
 | **Outcome** | Log-scaled spectrogram where values represent dB relative to peak |
 
-#### 3i. Min-Max Normalization
+#### 3h. Min-Max Normalization
 
 | Aspect | Detail |
 |--------|--------|
@@ -274,7 +271,7 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `(x - min) / (max - min)` — preserves relative differences; safe division handles edge case of constant input |
 | **Outcome** | Normalized spectrogram with values in [0, 1], dtype float32 |
 
-#### 3j. Channel Dimension Addition
+#### 3i. Channel Dimension Addition
 
 | Aspect | Detail |
 |--------|--------|
@@ -283,14 +280,23 @@ This is the most complex step. It consists of several sub-steps:
 | **Logic** | `np.newaxis` at the last axis creates a single-channel "image" |
 | **Outcome** | 3D tensor (128, 130, 1) ready for CNN input |
 
-#### 3k. Data Augmentation (Training Set Only)
+#### 3j. Data Augmentation (Applied to Every File)
 
 | Aspect | Detail |
 |--------|--------|
-| **What it does** | For each training file, creates 4 additional versions via pitch shift (±2 semitones), time stretch (1.1×), and additive Gaussian noise |
-| **Why needed** | Only 20 original training samples — far too few for deep learning. Augmentation creates plausible variations, acting as a regularizer and expanding the effective dataset size |
-| **Logic** | Applied at waveform level (before spectrogram) for realism; each augmentation preserves the class label; combats overfitting by exposing the model to diverse acoustic conditions |
-| **Outcome** | 5× expansion: 20 files → 100 training samples |
+| **What it does** | For every file, creates 4 additional versions via pitch shift (±2 semitones), time stretch (1.1×), and additive Gaussian noise |
+| **Why needed** | Only 30 original samples — too few for deep learning. Augmentation creates plausible variations, expanding the total sample pool before splitting |
+| **Logic** | Applied at waveform level (before spectrogram) for realism; each augmentation preserves the class label |
+| **Outcome** | 5× expansion: 30 files → 150 total samples (original + 4 augmented each) |
+
+#### 3k. Stratified Train/Val/Test Split
+
+| Aspect | Detail |
+|--------|--------|
+| **What it does** | Splits the 150 augmented samples into 70% train, 15% validation, 15% test while preserving class proportions |
+| **Why needed** | Ensures each split has representative class distribution |
+| **Logic** | Two-stage `train_test_split` with `stratify` parameter: first splits off 15% as test, then splits 15/85 of remaining as val; `random_state=42` ensures reproducibility |
+| **Outcome** | Train (~105), val (~22), test (~23) samples with balanced classes |
 
 #### 3l. Save NumPy Arrays
 
@@ -299,7 +305,7 @@ This is the most complex step. It consists of several sub-steps:
 | **What it does** | Saves stacked arrays to `data/processed/` as 6 `.npy` files |
 | **Why needed** | Decouples expensive preprocessing from training; allows multiple training runs without reprocessing |
 | **Logic** | `np.stack` creates uniform 4D batches; `np.save` uses efficient binary format |
-| **Outcome** | `X_train (100,128,130,1)`, `y_train (100,)`, `X_val (5,...)`, `y_val (5,)`, `X_test (5,...)`, `y_test (5,)` |
+| **Outcome** | `X_train (~105,128,130,1)`, `y_train (~105,)`, `X_val (~22,...)`, `y_val (~22,)`, `X_test (~23,...)`, `y_test (~23,)` |
 
 ### Step 4: Hyperparameter Search (`src/hparam_search.py`)
 
@@ -394,14 +400,14 @@ This is the most complex step. It consists of several sub-steps:
 ## 5. Outputs Summary
 
 ### Data Files (`data/processed/`)
-| File | Shape | Description |
-|------|-------|-------------|
-| `X_train.npy` | (100, 128, 130, 1) | Training features (5× augmented) |
-| `y_train.npy` | (100,) | Training labels |
-| `X_val.npy` | (5, 128, 130, 1) | Validation features |
-| `y_val.npy` | (5,) | Validation labels |
-| `X_test.npy` | (5, 128, 130, 1) | Test features |
-| `y_test.npy` | (5,) | Test labels |
+| File | Approx. Shape | Description |
+|------|---------------|-------------|
+| `X_train.npy` | (~105, 128, 130, 1) | Training features (augment-all before split) |
+| `y_train.npy` | (~105,) | Training labels |
+| `X_val.npy` | (~22, 128, 130, 1) | Validation features |
+| `y_val.npy` | (~22,) | Validation labels |
+| `X_test.npy` | (~23, 128, 130, 1) | Test features |
+| `y_test.npy` | (~23,) | Test labels |
 
 ### Model Files (`models/`)
 | File | Description |

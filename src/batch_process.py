@@ -3,18 +3,19 @@ batch_process.py — Batch Preprocessing & Stratified Split Runner with Augmenta
 
 Purpose:
   Scans all raw audio files from data/raw/grade_{a,b}, runs them through
-  preprocess_audio(), stacks into unified NumPy matrices, performs a
-  stratified 70/15/15 train/val/test split, and augments the training set.
+  preprocess_audio(), applies 4× waveform-level augmentation to every file,
+  stacks into unified NumPy matrices, then performs a stratified 70/15/15
+  train/val/test split on the combined set of original + augmented samples.
 
-Augmentation (training set only):
-  - Pitch shift (±2 semitones)
+Augmentation (applied to all files before split):
+  - Pitch shift (+2 semitones)
+  - Pitch shift (-2 semitones)
   - Time stretch (1.1x)
   - Additive Gaussian noise
 
 Output (6 files in data/processed/):
-  X_train.npy, y_train.npy    (70%, augmented)
-  X_val.npy,   y_val.npy      (15%)
-  X_test.npy,  y_test.npy     (15%)
+  30 files × (1 original + 4 augmented) = 150 total samples
+  Stratified 70/15/15 split → ~105 train / ~22 val / ~23 test
 
 Class labels:
   grade_a → 0,  grade_b → 1
@@ -76,49 +77,53 @@ def run_pipeline() -> None:
     paths = [p for p, l in items]
     labels = [l for p, l in items]
 
-    # Stratified split by index (before processing)
+    os.makedirs(OUT, exist_ok=True)
+
+    # Process every file: original + 4 augmented versions
+    X_all, y_all = [], []
+    print("Processing all files with augmentation ...")
+    for i in tqdm(range(len(paths)), desc="Processing"):
+        path = paths[i]
+        label = labels[i]
+        try:
+            feat = preprocess_audio(path)
+            X_all.append(feat)
+            y_all.append(label)
+
+            y_raw, sr = librosa.load(path, sr=SR, mono=True)
+            for aug_name, aug_fn in AUGMENTATIONS:
+                try:
+                    y_aug = aug_fn(y_raw.copy(), sr)
+                    feat_aug = audio_to_mel(y_aug, sr)
+                    X_all.append(feat_aug)
+                    y_all.append(label)
+                except Exception as exc:
+                    print(f"\n  ! {aug_name} failed for {os.path.relpath(path, BASE)}: {exc}")
+        except Exception as exc:
+            print(f"\n  \u2717 {os.path.relpath(path, BASE)} \u2014 {exc}")
+
+    X_all = np.stack(X_all, axis=0)
+    y_all = np.array(y_all, dtype=np.int32)
+    print(f"  Total samples: {X_all.shape[0]} (original + 4x augmented)\n")
+
+    # Stratified 70/15/15 split on ALL samples
     train_idx, test_idx = train_test_split(
-        np.arange(len(paths)), test_size=0.15, stratify=labels, random_state=42
+        np.arange(len(X_all)), test_size=0.15, stratify=y_all, random_state=42
     )
     train_idx, val_idx = train_test_split(
         train_idx, test_size=0.15 / 0.85,
-        stratify=[labels[i] for i in train_idx], random_state=42
+        stratify=y_all[train_idx], random_state=42
     )
 
     splits = {
-        "train": (train_idx, True),
-        "val":   (val_idx,   False),
-        "test":  (test_idx,  False),
+        "train": train_idx,
+        "val":   val_idx,
+        "test":  test_idx,
     }
 
-    os.makedirs(OUT, exist_ok=True)
-
-    for split_name, (indices, do_augment) in splits.items():
-        X_split, y_split = [], []
-        desc = f"Processing {split_name}"
-        for i in tqdm(indices, desc=desc):
-            path = paths[i]
-            label = labels[i]
-            try:
-                feat = preprocess_audio(path)
-                X_split.append(feat)
-                y_split.append(label)
-
-                if do_augment:
-                    y_raw, sr = librosa.load(path, sr=SR, mono=True)
-                    for aug_name, aug_fn in AUGMENTATIONS:
-                        try:
-                            y_aug = aug_fn(y_raw.copy(), sr)
-                            feat_aug = audio_to_mel(y_aug, sr)
-                            X_split.append(feat_aug)
-                            y_split.append(label)
-                        except Exception as exc:
-                            print(f"\n  ! {aug_name} failed for {os.path.relpath(path, BASE)}: {exc}")
-            except Exception as exc:
-                print(f"\n  \u2717 {os.path.relpath(path, BASE)} \u2014 {exc}")
-
-        X_arr = np.stack(X_split, axis=0)
-        y_arr = np.array(y_split, dtype=np.int32)
+    for split_name, indices in splits.items():
+        X_arr = X_all[indices]
+        y_arr = y_all[indices]
 
         name_x = f"X_{split_name}.npy"
         name_y = f"y_{split_name}.npy"
@@ -138,7 +143,7 @@ def run_pipeline() -> None:
         test_c  = int((y_test  == label).sum())
         print(f"  {grade_name} ({label}):  train={train_c}  val={val_c}  test={test_c}")
 
-    print(f"\nAugmentation: training set expanded 5x (1 original + 4 augmented)")
+    print(f"\nAugmentation: all files expanded 5x before split")
 
 
 if __name__ == "__main__":

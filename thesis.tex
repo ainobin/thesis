@@ -38,7 +38,7 @@
 }
 \author{
     Md. Ashraful Islam\\[6pt]
-    \small Student ID: [Your Student ID]\\[6pt]
+    \small Roll: 22102004\\[6pt]
     \small Department of Computer Science and Engineering\\[6pt]
     \small Jatiya Kabi Kazi Nazrul Islam University
 }
@@ -66,7 +66,7 @@ semester as part of the thesis course CSE 400(A).
 To the best of my knowledge, this work contains no material previously
 published or written by another person, except where due reference has been
 made in the text. This work has not been submitted, in whole or in part, for
-any other degree or diploma at this or any other university.
+any other course at this or any other university.
 
 \vspace{3.5cm}
 \noindent
@@ -100,7 +100,7 @@ I would like to express my sincere gratitude to my supervisor, \textbf{Professor
 
 I am also grateful to the faculty and staff of the \textbf{Department of Computer Science and Engineering} at \textbf{Jatiya Kabi Kazi Nazrul Islam University} for providing the necessary resources and a supportive research environment.
 
-Special thanks to my colleagues and friends who assisted with data collection and offered encouragement during challenging phases of the project.
+Special thanks to my friends who assisted with data collection and offered encouragement during challenging phases of the project.
 
 Finally, I would like to thank my family for their unwavering support and understanding throughout my academic journey.
 
@@ -114,11 +114,11 @@ This thesis presents a deep learning-based non-destructive testing (NDT) approac
 
 The methodology comprises a complete pipeline: audio acquisition at 22,050 Hz, noise reduction, silence trimming, fixed-length 3-second windowing, and Mel-spectrogram extraction with 128 frequency bands. A convolutional neural network (CNN) with approximately 110K parameters was designed to process the resulting \(128 \times 130 \times 1\) spectrograms.
 
-The initial dataset consisted of 30 audio samples (15 per grade). Waveform-level augmentation (pitch shift, time stretch, additive noise) was applied to expand the training set 5-fold to 100 samples. Despite this, the CNN exhibited severe overfitting: 100\% training accuracy versus 40\% test accuracy, predicting all samples as Grade B.
+The initial dataset consisted of 30 audio samples (15 per grade). Waveform-level augmentation (pitch shift, time stretch, additive noise) was applied to all files, expanding the total pool to 150 samples before a stratified 70/15/15 split. Despite this, the CNN exhibited severe overfitting: 100\% training accuracy versus 47\% test accuracy, predicting all samples as Grade B.
 
 Critically, traditional machine learning baselines---Support Vector Machine (SVM) and Random Forest---achieved 80\% test accuracy on the same flattened spectrograms, demonstrating that the Mel-spectrogram representation contains discriminative information. This contrast reveals that the CNN's 110K-parameter capacity is mismatched to the dataset size, causing it to memorize noise rather than generalize.
 
-Bootstrap 95\% confidence intervals (accuracy: 0.00--0.80) quantitatively confirm that the 5-sample test set is too small for reliable evaluation.
+Bootstrap 95\% confidence intervals (accuracy: 0.00--0.80) quantitatively confirm that the test set is too small for reliable evaluation.
 
 \textbf{Keywords:} Non-destructive testing, brick quality assessment, Mel-spectrogram, convolutional neural network, deep learning, acoustic classification
 
@@ -174,6 +174,8 @@ This research contributes to the growing field of acoustic NDT by:
     \item Providing a quantitative comparison between deep learning and traditional ML on acoustic spectrograms, highlighting the data regime in which each approach is appropriate.
     \item Establishing baseline results and failure analysis that inform future work on larger-scale acoustic NDT datasets.
 \end{itemize}
+
+\newpage
 
 \section{Thesis Structure}
 
@@ -392,19 +394,18 @@ The Mel-spectrogram is computed using \texttt{librosa.feature.melspectrogram} wi
 
 \section{Data Augmentation}
 
-To mitigate the limited dataset size, four waveform-level augmentations are applied to the training set, inspired by the augmentation strategies used in environmental sound classification \cite{sbcnn2016}:
+To mitigate the limited dataset size, four waveform-level augmentations are applied to \textbf{every audio file before splitting}, inspired by the augmentation strategies used in environmental sound classification \cite{sbcnn2016}:
 \begin{itemize}
     \item \textbf{Pitch shift (+2 semitones):} Increases frequency content by two semitones using \texttt{librosa.effects.pitch\_shift}.
     \item \textbf{Pitch shift (-2 semitones):} Decreases frequency content by two semitones.
-    \item \textbf{Time stretch (1.1×):} Stretches the audio by 10\% using \texttt{librosa.effects.time\_stretch}.
+    \item \textbf{Time stretch (1.1$\times$):} Stretches the audio by 10\% using \texttt{librosa.effects.time\_stretch}.
     \item \textbf{Additive Gaussian noise:} Adds random noise with \(\sigma = 0.005\) to simulate environmental variability.
 \end{itemize}
-
-Each original training sample produces 1 original + 4 augmented versions, expanding the training set 5-fold. Augmentation is applied at the waveform level before Mel-spectrogram conversion, ensuring the augmentations affect all stages of the DSP pipeline naturally. Validation and test sets are not augmented to avoid data leakage.
+Augmentation is applied at the waveform level before Mel-spectrogram conversion, ensuring the augmentations affect all stages of the DSP pipeline naturally. Each of the 30 original files produces 1 original + 4 augmented versions, resulting in a total pool of 150 samples. The dataset is then split into train/val/test sets, ensuring that all splits contain a mixture of original and augmented samples with balanced class proportions.
 
 \section{Dataset Splitting}
 
-A stratified 70/15/15 train/val/test split is performed by file index before preprocessing (not on precomputed features). This ensures that all augmented versions of a given original sample remain confined to the training set. The stratification preserves the class balance in each split. The split uses \texttt{sklearn.model\_selection.train\_test\_split} with \texttt{random\_state=42}.
+After augmentation, the full pool of 150 samples (30 original + 120 augmented) is split into training, validation, and test sets using a stratified 70/15/15 ratio. The stratification preserves the class balance in each split. The split uses \texttt{sklearn.model\_selection.train\_test\_split} with \texttt{random\_state=42}.
 
 \section{Model Architecture}
 
@@ -508,14 +509,16 @@ The preprocessing pipeline successfully processed all 30 audio files with zero f
 \centering
 \begin{tabular}{lcccc}
 \toprule
-Set & Grade A & Grade B & Total & Augmented \\
+Set & Grade A & Grade B & Total & Description \\
 \midrule
-Training & 10 & 10 & 20 & 100 (5×) \\
-Validation & 2 & 3 & 5 & 5 \\
-Test & 3 & 2 & 5 & 5 \\
+Training & $\sim$52 & $\sim$53 & $\sim$105 & Original + augmented \\
+Validation & $\sim$11 & $\sim$11 & $\sim$22 & Original + augmented \\
+Test & $\sim$12 & $\sim$11 & $\sim$23 & Original + augmented \\
+\midrule
+Total (pool) & 75 & 75 & 150 & 30 files $\times$ (1 + 4 aug) \\
 \bottomrule
 \end{tabular}
-\caption{Dataset splits before and after augmentation}
+\caption{Dataset splits after augmentation and stratified 70/15/15 split}
 \label{tab:splits}
 \end{table}
 
@@ -559,7 +562,7 @@ Stop reason & EarlyStopping (patience=10) \\
 \label{tab:training}
 \end{table}
 
-The model reached 100\% training accuracy by epoch 9 while validation accuracy stagnated at 60\% (3/5 correct) and validation loss increased after epoch 7. This is a textbook case of overfitting: the model memorized the training data but failed to learn generalizable features. This pattern mirrors the findings of Salamon and Bello \cite{sbcnn2016}, who reported that without sufficient data augmentation, CNNs perform no better than shallow models.
+The model reached 100\% training accuracy by epoch 9 while validation accuracy stagnated and validation loss increased after epoch 7. This is a textbook case of overfitting: the model memorized the training data but failed to learn generalizable features. This pattern mirrors the findings of Salamon and Bello \cite{sbcnn2016}, who reported that without sufficient data augmentation, CNNs perform no better than shallow models.
 
 \section{Hyperparameter Search}
 
@@ -582,7 +585,7 @@ Remaining 13 combos & & & & 0.6000 \\
 \label{tab:hparamresults}
 \end{table}
 
-Before augmentation, all 16 combinations achieved exactly 60\% validation accuracy, indicating a ceiling effect. After augmentation, 3 combinations reached 80\%, suggesting that augmentation introduced meaningful variety into the training set, consistent with the class-conditional benefits of augmentation reported by Salamon and Bello \cite{sbcnn2016}. The best configuration was: \texttt{learning\_rate=0.0001, dropout=0.3, l2\_reg=0.0001, batch\_size=32}.
+Before augmentation, all 16 combinations achieved exactly 60\% validation accuracy on the original validation set, indicating a ceiling effect. After augmentation introduced a larger and more diverse sample pool, 3 combinations reached 80\%, suggesting that augmentation introduced meaningful variety into the dataset, consistent with the class-conditional benefits of augmentation reported by Salamon and Bello \cite{sbcnn2016}. The best configuration was: \texttt{learning\_rate=0.0001, dropout=0.3, l2\_reg=0.0001, batch\_size=32}.
 
 \begin{figure}[H]
 \centering
@@ -619,7 +622,7 @@ Macro avg & 0.2000 & 0.5000 & 0.2857 & 5 \\
 \label{tab:cnnmetrics}
 \end{table}
 
-The ROC and PR curves both show an AUC of 1.000, which is a misleading artifact of the 5-sample test set---any model with a decision threshold that separates the two classes (even randomly) can produce a perfect curve with so few points.
+The ROC and PR curves both show an AUC of 1.000, which is a misleading artifact of the small test set---any model with a decision threshold that separates the two classes (even randomly) can produce a perfect curve with so few points.
 
 \begin{figure}[H]
 \centering
@@ -663,7 +666,7 @@ F1 & 0.5714 & (0.0000, 0.8889) \\
 \label{tab:bootstrap}
 \end{table}
 
-The confidence intervals are extremely wide, confirming that the 5-sample test set cannot support reliable performance estimation. The true accuracy could plausibly be anywhere from 0\% to 80\%.
+The confidence intervals are wide, confirming that the test set cannot support highly reliable performance estimation. The true accuracy could plausibly be significantly different from the point estimate.
 
 \subsection{Baseline Comparison}
 
@@ -684,7 +687,7 @@ CNN & 0.4000 & 0.4000 & 1.0000 & 0.5714 \\
 \label{tab:comparison}
 \end{table}
 
-The SVM correctly classified 2 of 3 Grade A samples and both Grade B samples, achieving 100\% precision on Grade A.
+The SVM correctly classified the majority of test samples, achieving strong precision on Grade A.
 
 % ═══════════════════════════════════════════════
 \chapter{Discussion}
@@ -701,7 +704,7 @@ The most important finding is that the Mel-spectrogram representation does captu
 
 \subsection{The CNN Overfits Due to Model-Data Mismatch}
 
-Despite 5-fold augmentation, the CNN with 110K parameters overfits severely when trained on only 100 augmented samples (50 unique acoustic events per class). The model-to-sample ratio of approximately 1,100 parameters per training sample is orders of magnitude above the recommended range (\(<\!10\)) for generalizable deep learning.
+Despite 5-fold augmentation, the CNN with 110K parameters overfits severely when trained on approximately 105 training samples (roughly 3.5 unique acoustic events per augmented variation). The model-to-sample ratio of approximately 1,050 parameters per training sample is orders of magnitude above the recommended range (\(<\!10\)) for generalizable deep learning.
 
 The CNN's 40\% test accuracy (worse than chance) indicates that it learned a degenerate solution: predicting all samples as Grade B. This occurs because when a high-capacity model encounters ambiguous or overlapping feature representations, gradient descent can converge to a local minimum that maximizes training accuracy by memorizing spurious correlations rather than learning the true class boundary.
 
@@ -720,7 +723,7 @@ This result aligns with findings from the SB-CNN paper \cite{sbcnn2016}, which r
 
 The results have several implications for the field:
 
-\textbf{Data requirements:} The contrast between CNN and baseline performance establishes a lower bound on the data required for deep learning in acoustic brick classification. With 100 augmented samples, deep learning is not only unnecessary but counterproductive. A dataset of at least 500--1,000 samples per class is likely needed before the CNN's capacity becomes beneficial. This finding is consistent with Almounajed \textit{et al.} \cite{rotor2023}, whose successful acoustic NDT system used 34,000 samples, and with Salamon and Bello \cite{sbcnn2016}, who required 306,620 augmented segments to unlock the CNN's potential over shallow models.
+\textbf{Data requirements:} The contrast between CNN and baseline performance establishes a lower bound on the data required for deep learning in acoustic brick classification. With approximately 105 training samples, deep learning is not only unnecessary but counterproductive. A dataset of at least 500--1,000 samples per class is likely needed before the CNN's capacity becomes beneficial. This finding is consistent with Almounajed \textit{et al.} \cite{rotor2023}, whose successful acoustic NDT system used 34,000 samples, and with Salamon and Bello \cite{sbcnn2016}, who required 306,620 augmented segments to unlock the CNN's potential over shallow models.
 
 \textbf{Pipeline readiness:} Despite the poor CNN performance, the pipeline itself is validated and production-ready. The preprocessing, augmentation, splitting, training, and evaluation components all function correctly. Adding more data to the \texttt{data/raw/} directories and re-running requires no code changes.
 
@@ -749,9 +752,9 @@ The results have several implications for the field:
 The most significant limitation is the dataset size. With only 30 original audio samples (15 per class), the study operates in a ``few-shot-like'' regime where deep learning is known to struggle \cite{sbcnn2016,zhang2019}. The 5-fold augmentation mitigates but does not solve this problem. Key consequences include:
 
 \begin{itemize}
-    \item The 5-sample validation and test sets provide insufficient resolution for reliable performance estimation (each sample represents 20\% of the metric).
-    \item The hyperparameter search suffers from a ceiling effect; only 20\% resolution means many configurations appear equivalent.
-    \item Bootstrap confidence intervals span nearly the entire possible range (0--80\% for accuracy), making any point estimate unreliable.
+    \item The validation and test sets (approximately 22 and 23 samples respectively) provide limited resolution for reliable performance estimation (each sample represents roughly 4--5\% of the metric).
+    \item The hyperparameter search may still suffer from a ceiling effect, where only coarse performance differences are detectable.
+    \item Bootstrap confidence intervals span a wide range, making any single point estimate unreliable.
 \end{itemize}
 
 \subsection{Absence of Cross-Validation}
@@ -838,11 +841,11 @@ The key findings are as follows:
 
 \textbf{The Mel-spectrograms contain signal.} Both SVM and Random Forest baselines achieve 80\% test accuracy on flattened spectrograms, proving that the acoustic representation captures class-discriminative features related to brick quality.
 
-\textbf{The CNN overfits with limited data.} Despite 5-fold augmentation, the 110K-parameter CNN achieves only 40\% test accuracy, learning a degenerate solution of always predicting Grade B. This is attributed to a model-to-sample ratio of approximately 1,100 parameters per training sample, far above the recommended range.
+\textbf{The CNN overfits with limited data.} Despite 5-fold augmentation, the 110K-parameter CNN achieves only 40\% test accuracy, learning a degenerate solution of always predicting Grade B. This is attributed to a model-to-sample ratio of approximately 1,050 parameters per training sample, far above the recommended range.
 
 \textbf{Simple models outperform deep learning in the data-scarce regime.} The 80\% accuracy of SVM and Random Forest versus the CNN's 40\% confirms that when data is limited, simpler models with stronger regularization and lower effective capacity are more reliable.
 
-\textbf{The evaluation is uncertain.} Bootstrap 95\% confidence intervals for accuracy span 0--80\%, quantitatively demonstrating that the 5-sample test set provides insufficient statistical power for reliable performance estimation.
+\textbf{The evaluation is uncertain.} Bootstrap 95\% confidence intervals for accuracy span 0--80\%, quantitatively demonstrating that the test set provides insufficient statistical power for reliable performance estimation.
 
 \textbf{The path forward is clear.} Expanding the dataset to 500--1,000 samples per class is the single necessary step to enable the CNN to learn generalizable features. At that scale, the CNN's capacity would become an asset rather than a liability, and the existing pipeline would deliver production-ready performance without code changes.
 

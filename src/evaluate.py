@@ -4,11 +4,11 @@ evaluate.py — Test-Set Evaluation
 Purpose:
   Loads the best saved model and runs it on the held-out test set.
   Computes accuracy, precision, recall, F1-score (per-class + macro),
-  confusion matrix, and ROC curve.
+  confusion matrix, and ROC curves (one-vs-rest).
 
 Output:
   figures/confusion_matrix.png   — heatmap
-  figures/roc_curve.png          — ROC curve with AUC
+  figures/roc_curve.png          — ROC curves with AUC per class
   models/results_summary.npy     — dict of all test metrics
 
 Usage:
@@ -38,6 +38,8 @@ MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 FIGURES_DIR = os.path.join(PROJECT_ROOT, "figures")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
+LABELS = ["Grade A", "Grade B", "Grade C"]
+
 
 def main():
     print("Loading test data ...")
@@ -55,10 +57,10 @@ def main():
 
     acc = accuracy_score(y_test, y_pred)
     precision, recall, f1, _ = precision_recall_fscore_support(
-        y_test, y_pred, average="binary", labels=[0, 1]
+        y_test, y_pred, average="macro"
     )
     precision_per, recall_per, f1_per, support_per = precision_recall_fscore_support(
-        y_test, y_pred, labels=[0, 1]
+        y_test, y_pred, labels=list(range(len(LABELS)))
     )
 
     print(f"\n  Test accuracy:  {acc:.4f}")
@@ -66,27 +68,31 @@ def main():
     print(f"  Recall:         {recall:.4f}")
     print(f"  F1-score:       {f1:.4f}")
     print()
-    print(f"  Grade A (0):  precision={precision_per[0]:.4f}  recall={recall_per[0]:.4f}  f1={f1_per[0]:.4f}  support={support_per[0]}")
-    print(f"  Grade B (1):  precision={precision_per[1]:.4f}  recall={recall_per[1]:.4f}  f1={f1_per[1]:.4f}  support={support_per[1]}")
+    for i, name in enumerate(LABELS):
+        print(f"  {name} ({i}):  precision={precision_per[i]:.4f}  recall={recall_per[i]:.4f}  f1={f1_per[i]:.4f}  support={support_per[i]}")
 
-    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    cm = confusion_matrix(y_test, y_pred, labels=list(range(len(LABELS))))
     print(f"\nConfusion matrix:\n{cm}")
 
     fig, ax = plt.subplots(figsize=(5, 4))
-    ConfusionMatrixDisplay(cm, display_labels=["Grade A", "Grade B"]).plot(ax=ax)
+    ConfusionMatrixDisplay(cm, display_labels=LABELS).plot(ax=ax)
     plt.tight_layout()
     cm_path = os.path.join(FIGURES_DIR, "confusion_matrix.png")
     plt.savefig(cm_path, dpi=150)
     print(f"  Saved {cm_path}")
 
-    fpr, tpr, _ = roc_curve(y_test, y_prob[:, 1])
-    roc_auc = auc(fpr, tpr)
+    n_classes = y_prob.shape[1]
+    colors = ["steelblue", "coral", "seagreen"]
     fig2, ax2 = plt.subplots(figsize=(6, 5))
-    ax2.plot(fpr, tpr, label=f"ROC curve (AUC = {roc_auc:.3f})", lw=2)
+    for i in range(n_classes):
+        binary_y = (y_test == i).astype(int)
+        fpr, tpr, _ = roc_curve(binary_y, y_prob[:, i])
+        roc_auc = auc(fpr, tpr)
+        ax2.plot(fpr, tpr, label=f"{LABELS[i]} (AUC = {roc_auc:.3f})", lw=2, color=colors[i % len(colors)])
     ax2.plot([0, 1], [0, 1], "k--", lw=1)
     ax2.set_xlabel("False Positive Rate")
     ax2.set_ylabel("True Positive Rate")
-    ax2.set_title("ROC Curve")
+    ax2.set_title("ROC Curve (One-vs-Rest)")
     ax2.legend(loc="lower right")
     plt.tight_layout()
     roc_path = os.path.join(FIGURES_DIR, "roc_curve.png")

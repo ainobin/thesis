@@ -58,6 +58,7 @@ def main():
     print(f"  X_train: {X_train.shape}  y_train: {y_train.shape}")
     print(f"  X_val:   {X_val.shape}  y_val:   {y_val.shape}")
 
+    num_classes = len(np.unique(y_train))
     keys = list(HPARAM_GRID.keys())
     values = list(HPARAM_GRID.values())
     total = len(list(itertools.product(*values)))
@@ -72,7 +73,7 @@ def main():
 
         print(f"[{i+1}/{total}]  lr={lr}  dropout={dropout}  l2={l2_reg}  batch={bs}")
 
-        model = build_cnn(X_train.shape[1:], num_classes=2, dropout=dropout, l2_reg=l2_reg)
+        model = build_cnn(X_train.shape[1:], num_classes=num_classes, dropout=dropout, l2_reg=l2_reg)
         model.compile(
             optimizer=Adam(learning_rate=lr),
             loss="sparse_categorical_crossentropy",

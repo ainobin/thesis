@@ -6,12 +6,12 @@ Purpose:
   trained model and preprocessed data.
 
 Figures (7 total, saved to figures/):
-  1. spectrogram_grid.png       — 4×6 random sample Mel-spectrograms
+  1. spectrogram_grid.png       — 4x6 random sample Mel-spectrograms
   2. training_curves_final.png  — loss & accuracy over epochs
   3. class_distribution.png     — train/val/test bar chart
   4. confusion_matrix.png       — normalised heatmap
-  5. roc_curve.png              — ROC with AUC
-  6. pr_curve.png               — Precision-Recall with AUC
+  5. roc_curve.png              — ROC with AUC (one-vs-rest per class)
+  6. pr_curve.png               — Precision-Recall with AUC (one-vs-rest per class)
   7. misclassifications.png     — false positives & false negatives
 
 Also prints a per-class metrics table and updates results_summary.npy.
@@ -43,7 +43,7 @@ MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 FIGURES_DIR = os.path.join(PROJECT_ROOT, "figures")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
-LABELS = ["Grade A", "Grade B"]
+LABELS = ["Grade A", "Grade B", "Grade C"]
 
 
 def _load_data():
@@ -79,42 +79,51 @@ def plot_spectrogram_grid(X_train, y_train):
 
 
 def plot_pr_curve(y_test, y_prob):
-    precision, recall, _ = precision_recall_curve(y_test, y_prob[:, 1])
-    pr_auc = auc(recall, precision)
+    n_classes = y_prob.shape[1]
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(recall, precision, lw=2, label=f"PR curve (AUC = {pr_auc:.3f})")
+    colors = ["steelblue", "coral", "seagreen"]
+    for i in range(n_classes):
+        binary_y = (y_test == i).astype(int)
+        precision, recall, _ = precision_recall_curve(binary_y, y_prob[:, i])
+        pr_auc = auc(recall, precision)
+        ax.plot(recall, precision, lw=2, color=colors[i % len(colors)],
+                label=f"{LABELS[i]} (AUC = {pr_auc:.3f})")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
-    ax.set_title("Precision-Recall Curve")
+    ax.set_title("Precision-Recall Curve (One-vs-Rest)")
     ax.legend(loc="lower left")
     plt.tight_layout()
     path = os.path.join(FIGURES_DIR, "pr_curve.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  Saved {path}")
-    return pr_auc
 
 
 def plot_roc_curve(y_test, y_prob):
-    fpr, tpr, _ = roc_curve(y_test, y_prob[:, 1])
-    roc_auc = auc(fpr, tpr)
+    n_classes = y_prob.shape[1]
     fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot(fpr, tpr, lw=2, label=f"ROC curve (AUC = {roc_auc:.3f})")
+    colors = ["steelblue", "coral", "seagreen"]
+    for i in range(n_classes):
+        binary_y = (y_test == i).astype(int)
+        fpr, tpr, _ = roc_curve(binary_y, y_prob[:, i])
+        roc_auc = auc(fpr, tpr)
+        ax.plot(fpr, tpr, lw=2, color=colors[i % len(colors)],
+                label=f"{LABELS[i]} (AUC = {roc_auc:.3f})")
     ax.plot([0, 1], [0, 1], "k--", lw=1)
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
-    ax.set_title("ROC Curve")
+    ax.set_title("ROC Curve (One-vs-Rest)")
     ax.legend(loc="lower right")
     plt.tight_layout()
     path = os.path.join(FIGURES_DIR, "roc_curve.png")
     plt.savefig(path, dpi=150)
     plt.close()
     print(f"  Saved {path}")
-    return roc_auc
 
 
 def plot_confusion_matrix(y_test, y_pred):
-    cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
+    labels = list(range(len(LABELS)))
+    cm = confusion_matrix(y_test, y_pred, labels=labels)
     fig, ax = plt.subplots(figsize=(5, 4))
     ConfusionMatrixDisplay(cm, display_labels=LABELS).plot(ax=ax, cmap="Blues")
     plt.tight_layout()
@@ -126,24 +135,25 @@ def plot_confusion_matrix(y_test, y_pred):
 
 
 def plot_class_distribution(y_train, y_val, y_test):
-    counts = {
-        "Train": [int((y_train == 0).sum()), int((y_train == 1).sum())],
-        "Val":   [int((y_val   == 0).sum()), int((y_val   == 1).sum())],
-        "Test":  [int((y_test  == 0).sum()), int((y_test  == 1).sum())],
-    }
+    n_classes = len(LABELS)
+    colors = ["steelblue", "coral", "seagreen"]
+    counts = {}
+    for split_name, y in [("Train", y_train), ("Val", y_val), ("Test", y_test)]:
+        counts[split_name] = [int((y == i).sum()) for i in range(n_classes)]
     x = np.arange(len(counts))
-    width = 0.35
+    width = 0.8 / n_classes
     fig, ax = plt.subplots(figsize=(7, 5))
-    ax.bar(x - width / 2, [c[0] for c in counts.values()], width, label="Grade A", color="steelblue")
-    ax.bar(x + width / 2, [c[1] for c in counts.values()], width, label="Grade B", color="coral")
+    for i in range(n_classes):
+        offset = (i - (n_classes - 1) / 2) * width
+        vals = [c[i] for c in counts.values()]
+        ax.bar(x + offset, vals, width, label=LABELS[i], color=colors[i % len(colors)])
+        for j, v in enumerate(vals):
+            ax.text(x[j] + offset, v + 0.1, str(v), fontsize=8, ha="center")
     ax.set_xticks(x)
     ax.set_xticklabels(counts.keys())
     ax.set_ylabel("Count")
     ax.set_title("Class Distribution Across Splits")
     ax.legend()
-    for i, k in enumerate(counts):
-        for j, v in enumerate(counts[k]):
-            ax.text(i + (-0.12 if j == 0 else 0.12), v + 0.1, str(v), fontsize=9)
     plt.tight_layout()
     path = os.path.join(FIGURES_DIR, "class_distribution.png")
     plt.savefig(path, dpi=150)
@@ -214,7 +224,7 @@ def bootstrap_ci(y_true, y_pred_proba, n_iterations=1000, alpha=0.05, random_sta
 
         metrics["accuracy"].append(accuracy_score(y_true_boot, y_pred_boot))
         p, r, f1, _ = precision_recall_fscore_support(
-            y_true_boot, y_pred_boot, average="binary", labels=[0, 1], zero_division=0
+            y_true_boot, y_pred_boot, average="macro", zero_division=0
         )
         metrics["precision"].append(p)
         metrics["recall"].append(r)
@@ -247,12 +257,11 @@ def main():
     plot_training_curves()
     plot_class_distribution(y_train, y_val, y_test)
     cm = plot_confusion_matrix(y_test, y_pred)
-    roc_auc = plot_roc_curve(y_test, y_prob)
-    pr_auc = plot_pr_curve(y_test, y_prob)
+    plot_roc_curve(y_test, y_prob)
+    plot_pr_curve(y_test, y_prob)
     plot_misclassifications(X_test, y_test, y_pred, y_prob)
 
     print("\n--- Per-Class Metrics ---")
-    tn, fp, fn, tp = cm.ravel()
     print(f"  {'Class':<12} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'Support':<10}")
     print(f"  {'-'*58}")
     for i, label in enumerate(LABELS):
@@ -268,22 +277,18 @@ def main():
     print(f"  {'-'*48}")
     point_acc = accuracy_score(y_test, y_pred)
     point_p, point_r, point_f1, _ = precision_recall_fscore_support(
-        y_test, y_pred, average="binary", labels=[0, 1], zero_division=0
+        y_test, y_pred, average="macro", zero_division=0
     )
     print(f"  {'Accuracy':<12} {point_acc:<12.4f} ({ci['accuracy'][0]:.4f}, {ci['accuracy'][1]:.4f})")
     print(f"  {'Precision':<12} {point_p:<12.4f} ({ci['precision'][0]:.4f}, {ci['precision'][1]:.4f})")
     print(f"  {'Recall':<12} {point_r:<12.4f} ({ci['recall'][0]:.4f}, {ci['recall'][1]:.4f})")
     print(f"  {'F1':<12} {point_f1:<12.4f} ({ci['f1'][0]:.4f}, {ci['f1'][1]:.4f})")
 
-    print(f"\n  ROC AUC: {roc_auc:.4f}  |  PR AUC: {pr_auc:.4f}")
-
     results = {
         "test_accuracy": float(point_acc),
         "test_f1": float(point_f1),
         "test_precision": float(point_p),
         "test_recall": float(point_r),
-        "roc_auc": float(roc_auc),
-        "pr_auc": float(pr_auc),
         "confusion_matrix": cm.tolist(),
         "bootstrap_ci_95": {k: [float(v[0]), float(v[1])] for k, v in ci.items()},
     }

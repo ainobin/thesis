@@ -2,8 +2,8 @@
 batch_process.py — Batch Preprocessing & Stratified Split Runner with Augmentation
 
 Purpose:
-  Scans all raw audio files from data/raw/grade_{a,b}, runs them through
-  preprocess_audio(), applies 4× waveform-level augmentation to every file,
+  Scans all raw audio files from data/raw/grade_{a,b,c}, runs them through
+  preprocess_audio(), applies 4x waveform-level augmentation to every file,
   stacks into unified NumPy matrices, then performs a stratified 70/15/15
   train/val/test split on the combined set of original + augmented samples.
 
@@ -14,11 +14,11 @@ Augmentation (applied to all files before split):
   - Additive Gaussian noise
 
 Output (6 files in data/processed/):
-  30 files × (1 original + 4 augmented) = 150 total samples
-  Stratified 70/15/15 split → ~105 train / ~22 val / ~23 test
+  301 files x (1 original + 4 augmented) = 1505 total samples
+  Stratified 70/15/15 split
 
 Class labels:
-  grade_a → 0,  grade_b → 1
+  grade_a -> 0,  grade_b -> 1,  grade_c -> 2
 
 Usage:
   python src/batch_process.py
@@ -42,7 +42,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(BASE, "data", "raw")
 OUT = os.path.join(BASE, "data", "processed")
 
-LABEL_MAP = {"grade_a": 0, "grade_b": 1}
+LABEL_MAP = {"grade_a": 0, "grade_b": 1, "grade_c": 2}
 SUPPORTED_EXTENSIONS = (".wav", ".mp3", ".flac", ".m4a", ".ogg")
 
 AUGMENTATIONS = [

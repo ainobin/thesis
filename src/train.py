@@ -21,6 +21,7 @@ Usage:
 import os
 import sys
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
@@ -40,7 +41,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 
 BATCH_SIZE = 32
 EPOCHS = 100
-LR = 1e-3
+LR = 3e-4
 
 
 def main() -> None:
@@ -53,13 +54,22 @@ def main() -> None:
     print(f"  X_train: {X_train.shape}  y_train: {y_train.shape}")
     print(f"  X_val:   {X_val.shape}  y_val:   {y_val.shape}")
 
-    model = build_cnn(input_shape=X_train.shape[1:])
+    num_classes = len(np.unique(y_train))
+    model = build_cnn(input_shape=X_train.shape[1:], num_classes=num_classes)
     model.compile(
         optimizer=Adam(learning_rate=LR),
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )
     model.summary()
+
+    class_weights_arr = compute_class_weight(
+        class_weight="balanced",
+        classes=np.unique(y_train),
+        y=y_train
+    )
+    class_weight_dict = dict(enumerate(class_weights_arr))
+    print("Computed Class Weights:", class_weight_dict)
 
     callbacks = [
         ModelCheckpoint(
@@ -91,6 +101,7 @@ def main() -> None:
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
         validation_data=(X_val, y_val),
+        class_weight=class_weight_dict,
         callbacks=callbacks,
         verbose=2,
     )

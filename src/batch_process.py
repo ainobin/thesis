@@ -35,7 +35,7 @@ import librosa
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-from src.preprocess import preprocess_audio, audio_to_mel, SR
+from src.preprocess import preprocess_audio, audio_to_mel, audio_to_mel_raw, SR
 from src.augment import pitch_shift, time_stretch, add_noise
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,8 +46,8 @@ LABEL_MAP = {"grade_a": 0, "grade_b": 1, "grade_c": 2}
 SUPPORTED_EXTENSIONS = (".wav", ".mp3", ".flac", ".m4a", ".ogg")
 
 AUGMENTATIONS = [
-    ("pitch_shift+2", lambda y, sr: pitch_shift(y, sr, n_steps=2)),
-    ("pitch_shift-2", lambda y, sr: pitch_shift(y, sr, n_steps=-2)),
+    ("pitch_shift+1", lambda y, sr: pitch_shift(y, sr, n_steps=1)),
+    ("pitch_shift-1", lambda y, sr: pitch_shift(y, sr, n_steps=-1)),
     ("time_stretch",  lambda y, sr: time_stretch(y, rate=1.1)),
     ("add_noise",     lambda y, sr: add_noise(y, noise_factor=0.005)),
 ]
@@ -94,7 +94,7 @@ def run_pipeline() -> None:
             for aug_name, aug_fn in AUGMENTATIONS:
                 try:
                     y_aug = aug_fn(y_raw.copy(), sr)
-                    feat_aug = audio_to_mel(y_aug, sr)
+                    feat_aug = audio_to_mel_raw(y_aug, sr)
                     X_all.append(feat_aug)
                     y_all.append(label)
                 except Exception as exc:

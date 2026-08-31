@@ -57,9 +57,9 @@ def _load_data():
 
 
 def _load_model():
-    path = os.path.join(MODELS_DIR, "final_best.keras")
+    path = os.path.join(MODELS_DIR, "best.keras")
     if not os.path.exists(path):
-        path = os.path.join(MODELS_DIR, "best.keras")
+        path = os.path.join(MODELS_DIR, "final_best.keras")
     return load_model(path), path
 
 

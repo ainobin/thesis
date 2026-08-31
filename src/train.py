@@ -41,7 +41,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 
 BATCH_SIZE = 32
 EPOCHS = 100
-LR = 3e-4
+LR = 1e-4
 
 
 def main() -> None:
@@ -81,14 +81,14 @@ def main() -> None:
         ),
         EarlyStopping(
             monitor="val_accuracy",
-            patience=10,
+            patience=15,
             restore_best_weights=True,
             verbose=1,
         ),
         ReduceLROnPlateau(
             monitor="val_loss",
             factor=0.5,
-            patience=5,
+            patience=8,
             min_lr=1e-6,
             verbose=1,
         ),

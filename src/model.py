@@ -25,7 +25,7 @@ Usage:
 from tensorflow.keras import layers, Model, regularizers
 
 
-def build_cnn(input_shape=(128, None, 1), num_classes=3, dropout=0.3, l2_reg=1e-4):
+def build_cnn(input_shape=(128, None, 1), num_classes=3, dropout=0.5, l2_reg=1e-4):
     inp = layers.Input(shape=input_shape)
 
     x = layers.Conv2D(32, (3, 3), padding="same", activation="relu")(inp)
@@ -40,7 +40,7 @@ def build_cnn(input_shape=(128, None, 1), num_classes=3, dropout=0.3, l2_reg=1e-
     x = layers.BatchNormalization()(x)
     x = layers.GlobalAveragePooling2D()(x)
 
-    x = layers.Dense(128, activation="relu",
+    x = layers.Dense(64, activation="relu",
                      kernel_regularizer=regularizers.l2(l2_reg))(x)
     x = layers.Dropout(dropout)(x)
     out = layers.Dense(num_classes, activation="softmax")(x)

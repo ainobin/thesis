@@ -25,6 +25,8 @@ from sklearn.metrics import (
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_ROOT, "data", "processed")
 
+LABELS = ["Grade A", "Grade B", "Grade C"]
+
 
 def main():
     print("Loading data ...")
@@ -56,12 +58,12 @@ def main():
         y_pred = model.predict(X_test_flat)
         acc = accuracy_score(y_test, y_pred)
         p, r, f1, _ = precision_recall_fscore_support(
-            y_test, y_pred, average="binary", labels=[0, 1]
+            y_test, y_pred, average="macro"
         )
         results[name] = {"accuracy": acc, "precision": p, "recall": r, "f1": f1}
         print(f"  Accuracy:  {acc:.4f}")
         print(f"  Precision: {p:.4f}  Recall: {r:.4f}  F1: {f1:.4f}")
-        print(f"  Per-class:\n{classification_report(y_test, y_pred, target_names=['Grade A', 'Grade B'], zero_division=0)}")
+        print(f"  Per-class:\n{classification_report(y_test, y_pred, target_names=LABELS, zero_division=0)}")
 
     print("\n--- Baseline Comparison ---")
     print(f"{'Model':<20} {'Accuracy':<10} {'Precision':<10} {'Recall':<10} {'F1':<10}")

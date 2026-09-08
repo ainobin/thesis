@@ -5,6 +5,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 DIRS = [
     os.path.join(BASE, "data", "raw", "grade_a"),
     os.path.join(BASE, "data", "raw", "grade_b"),
+    os.path.join(BASE, "data", "raw", "grade_c"),
     os.path.join(BASE, "data", "processed"),
     os.path.join(BASE, "src"),
     os.path.join(BASE, "models"),

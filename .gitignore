@@ -12,9 +12,9 @@ venv/
 .env
 
 # Data
-data/
-*.wav
-*.npy
+# data/
+# *.wav
+# *.npy
 
 # Models
 models/checkpoints/

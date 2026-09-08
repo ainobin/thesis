@@ -1,0 +1,1 @@
+ffmpeg -err_detect ignore_err -i q3s1.mp3 -vn -acodec pcm_s16le -ar 22050 -ac 1 q3s1_clean.wav

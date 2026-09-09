@@ -22,6 +22,7 @@ import os
 import sys
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
+import tensorflow as tf
 from tensorflow.keras.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
@@ -39,12 +40,26 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "data", "processed")
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 100
-LR = 1e-4
+LR = 1e-3
+
+
+def configure_gpu() -> None:
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"GPU configured: {len(gpus)} device(s) detected with memory growth enabled")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
+    else:
+        print("WARNING: No GPU detected. Training will run on CPU (slow).")
 
 
 def main() -> None:
+    configure_gpu()
     print("Loading data ...")
     X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"))
     y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"))
@@ -55,7 +70,7 @@ def main() -> None:
     print(f"  X_val:   {X_val.shape}  y_val:   {y_val.shape}")
 
     num_classes = len(np.unique(y_train))
-    model = build_cnn(input_shape=X_train.shape[1:], num_classes=num_classes)
+    model = build_cnn(input_shape=X_train.shape[1:], num_classes=num_classes,  dropout=0.3)
     model.compile(
         optimizer=Adam(learning_rate=LR),
         loss="sparse_categorical_crossentropy",

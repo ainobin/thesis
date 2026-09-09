@@ -24,6 +24,7 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import tensorflow as tf
 from sklearn.metrics import (
     precision_recall_curve,
     auc,
@@ -239,7 +240,19 @@ def bootstrap_ci(y_true, y_pred_proba, n_iterations=1000, alpha=0.05, random_sta
     return ci
 
 
+def configure_gpu() -> None:
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"GPU configured: {len(gpus)} device(s)")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
+
+
 def main():
+    configure_gpu()
     print("Loading data ...")
     X_train, y_train, X_val, y_val, X_test, y_test = _load_data()
     print(f"  Train: {X_train.shape[0]}  Val: {X_val.shape[0]}  Test: {X_test.shape[0]}")

@@ -19,6 +19,7 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+import tensorflow as tf
 from tensorflow.keras.models import load_model
 from sklearn.metrics import (
     accuracy_score,
@@ -41,7 +42,19 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 LABELS = ["Grade A", "Grade B", "Grade C"]
 
 
+def configure_gpu() -> None:
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"GPU configured: {len(gpus)} device(s)")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
+
+
 def main():
+    configure_gpu()
     print("Loading test data ...")
     X_test = np.load(os.path.join(DATA_DIR, "X_test.npy"))
     y_test = np.load(os.path.join(DATA_DIR, "y_test.npy"))

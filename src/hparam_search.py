@@ -25,6 +25,7 @@ import os
 import sys
 import itertools
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 
@@ -49,7 +50,19 @@ HPO_EPOCHS = 30
 HPO_PATIENCE = 8
 
 
+def configure_gpu() -> None:
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"GPU configured: {len(gpus)} device(s)")
+        except RuntimeError as e:
+            print(f"GPU configuration error: {e}")
+
+
 def main():
+    configure_gpu()
     print("Loading data ...")
     X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"))
     y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"))

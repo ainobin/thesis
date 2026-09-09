@@ -25,9 +25,9 @@ Brick Quality Assessment via Mel-Spectrogram Analysis
 | Output dtype | float32 |
 | Dynamic range | [0.0, 1.0] |
 
-### 1.2 Augmentation
+### 1.2 Augmentation (Training Files Only)
 
-Four waveform-level augmentations applied to all files before split:
+Four waveform-level augmentations applied **only to training files** after file-level split:
 
 | Augmentation | Parameters | Implementation |
 |---|---|---|
@@ -36,43 +36,66 @@ Four waveform-level augmentations applied to all files before split:
 | Time stretch (1.1x) | `rate=1.1` | `librosa.effects.time_stretch` |
 | Additive Gaussian noise | `noise_factor=0.005` | `np.random.randn` |
 
-Each original file produces 1 original + 4 augmented versions = 5× expansion.
+Each training file produces 1 original + 4 augmented versions = 5× expansion.
+Validation and test files remain as original recordings only.
 
-### 1.3 Batch Processing Output
+### 1.3 Data Leakage Prevention
+
+**Critical fix applied:** The pipeline now splits at the **file level** before augmentation.
+This prevents augmented versions of the same recording from appearing in different splits.
+
+```
+Before (leaky):     All files → augment all → split → train/val/test
+After (correct):    All files → split files → augment train only → train/val/test
+```
+
+### 1.4 Batch Processing Output
 
 ```
 Scanning audio files ...
   Found 591 files.
 
-  Total samples: 2955 (original + 4x augmented)
+Splitting files into train/val/test ...
+  Train files: 413
+  Val files:   89
+  Test files:  89
 
-  ✓ X_train.npy  →  (2067, 128, 35, 1)
-  ✓ y_train.npy  →  (2067,)
-  ✓ X_val.npy    →  (444, 128, 35, 1)
-  ✓ y_val.npy    →  (444,)
-  ✓ X_test.npy   →  (444, 128, 35, 1)
-  ✓ y_test.npy   →  (444,)
+Processing training files (with augmentation) ...
+  ✓ X_train → (2065, 128, 35, 1)  (files × 5 augmented)
+
+Processing validation files ...
+  ✓ X_val → (89, 128, 35, 1)
+
+Processing test files ...
+  ✓ X_test → (89, 128, 35, 1)
 
 Class distribution:
-  grade_a (0):  train=579  val=125  test=125  (augmented from 276)
-  grade_b (1):  train=412  val=88   test=88   (augmented from 196)
-  grade_c (2):  train=250  val=53   test=53   (augmented from 119)
+  grade_a (0):  train=965  val=41  test=42
+  grade_b (1):  train=685  val=30  test=29
+  grade_c (2):  train=415  val=18  test=18
+
+Total samples: 2243
+  Train: 2065  (augmented 5×)
+  Val:   89  (original only)
+  Test:  89  (original only)
+
+No data leakage: file-level split applied before augmentation.
 ```
 
-### 1.4 Data Verification
+### 1.5 Data Verification
 
 ```
-X_train: (2067, 128, 35, 1)  float32  range: [0.0000, 1.0000]
-y_train: (2067,)  int32  bins: [579 412 250]
-X_val:   (444, 128, 35, 1)  float32  range: [0.0000, 1.0000]
-y_val:   (444,)  int32  bins: [125  88  53]
-X_test:  (444, 128, 35, 1)  float32  range: [0.0000, 1.0000]
-y_test:  (444,)  int32  bins: [125  88  53]
+X_train: (2065, 128, 35, 1)  float32  range: [0.0000, 1.0000]
+y_train: (2065,)  int32  bins: [965 685 415]
+X_val:   (89, 128, 35, 1)  float32  range: [0.0000, 1.0000]
+y_val:   (89,)  int32  bins: [41 30 18]
+X_test:  (89, 128, 35, 1)  float32  range: [0.0000, 1.0000]
+y_test:  (89,)  int32  bins: [42 29 18]
 ```
 
-**Analysis:** The stratified split preserved class balance across all three
-splits. Augmentation expanded 591 files into 2,955 total samples. The 70/15/15
-split yields a robust test set of 444 samples (vs. only 5 in the prior experiment).
+**Analysis:** File-level stratified split ensures no data leakage. Training set is
+augmented 5× (413 files → 2,065 samples). Validation and test sets contain only
+original recordings from held-out files.
 
 ---
 
@@ -86,18 +109,16 @@ Input:          (None, 128, 35, 1)
 ├─ Conv2D(64, 3×3, ReLU) + BatchNorm + MaxPool(2×2)   → (32, 8, 64)
 ├─ Conv2D(128, 3×3, ReLU) + BatchNorm                  → (32, 8, 128)
 ├─ GlobalAveragePooling2D                               → (128)
-├─ Dense(64, ReLU, L2=1e-4) + Dropout(0.5)            → (64)
+├─ Dense(64, ReLU, L2=1e-3) + Dropout(0.3)            → (64)
 └─ Dense(3, Softmax)                                    → (3)
 ```
-
-`build_cnn()` accepts `dropout` and `l2_reg` parameters (defaults: 0.5, 1e-4).
 
 ### 2.2 Parameter Count
 
 | Category | Count | Size |
 |---|---|---|
-| Total params | ~110,000 | ~431 KB |
-| Trainable params | ~109,552 | ~429 KB |
+| Total params | ~102,000 | ~399 KB |
+| Trainable params | ~101,571 | ~397 KB |
 | Non-trainable params (BatchNorm) | 448 | 1.75 KB |
 
 ---
@@ -114,30 +135,20 @@ Input:          (None, 128, 35, 1)
 | Batch size | 16, 32 |
 | **Total combinations** | **16** |
 
-### 3.2 All Combinations Output
-
-```
-[1/16]   lr=0.001  dropout=0.3  l2=0.0001  batch=16    val_acc=0.9189
-[2/16]   lr=0.001  dropout=0.3  l2=0.0001  batch=32    val_acc=...
-[3/16]   lr=0.001  dropout=0.3  l2=0.001   batch=16    val_acc=...
-...
-```
-
-### 3.3 Best Configuration
+### 3.2 Best Configuration (on corrected data)
 
 ```python
 {
     'learning_rate': 0.001,
     'dropout': 0.3,
-    'l2_reg': 0.0001,
+    'l2_reg': 0.001,
     'batch_size': 16,
-    'val_accuracy': 0.9189
+    'val_accuracy': 0.8989
 }
 ```
 
-**Analysis:** The larger dataset (2,955 samples) enabled meaningful hyperparameter
-differentiation — the best config achieves 91.89% validation accuracy, a dramatic
-improvement over the prior experiment's ceiling of 80% (with only 5 val samples).
+**Analysis:** With file-level split (no leakage), the best validation accuracy is
+89.89% — lower than the leaked 91.89% but honest and generalizable.
 
 ---
 
@@ -147,40 +158,40 @@ improvement over the prior experiment's ceiling of 80% (with only 5 val samples)
 
 | Metric | Value | 95% Bootstrap CI |
 |---|---|---|
-| **Test accuracy** | **0.9482** | (0.9279, 0.9685) |
-| **Precision** | **0.9381** | (0.9136, 0.9615) |
-| **Recall** | **0.9305** | (0.9020, 0.9568) |
-| **F1-score** | **0.9338** | (0.9069, 0.9587) |
+| **Test accuracy** | **0.8539** | (0.7753, 0.9213) |
+| **Precision** | **0.8199** | (0.7253, 0.9063) |
+| **Recall** | **0.8014** | (0.7109, 0.8879) |
+| **F1-score** | **0.8084** | (0.7124, 0.8909) |
 
 ### 4.2 Per-Class Metrics
 
 | Class | Precision | Recall | F1-Score | Support |
 |---|---|---|---|---|
-| Grade A (0) | 0.9951 | 0.9903 | **0.9927** | 207 |
-| Grade B (1) | 0.9026 | 0.9456 | **0.9236** | 147 |
-| Grade C (2) | 0.9167 | 0.8556 | **0.8851** | 90 |
-| **Macro avg** | **0.9381** | **0.9305** | **0.9338** | **444** |
+| Grade A (0) | 0.9333 | 1.0000 | **0.9655** | 42 |
+| Grade B (1) | 0.7931 | 0.7931 | **0.7931** | 29 |
+| Grade C (2) | 0.7333 | 0.6111 | **0.6667** | 18 |
+| **Macro avg** | **0.8199** | **0.8014** | **0.8084** | **89** |
 
 ### 4.3 Confusion Matrix
 
 ```
               Predicted
               Grade A  Grade B  Grade C
-Actual Grade A   205      2        0
-Actual Grade B     1     139       7
-Actual Grade C     0      13      77
+Actual Grade A    42       0        0
+Actual Grade B     2      23        4
+Actual Grade C     1       6       11
 ```
 
 **Analysis:**
-- **Grade A** is nearly perfectly classified (205/207 correct, 99.03% recall)
-- **Grade B** has 7 samples confused with Grade C (94.56% recall)
-- **Grade C** has 13 samples confused with Grade B (85.56% recall) — weakest class due to fewest training samples (119 raw files)
-- Total misclassifications: 23 out of 444 (5.18%)
+- **Grade A** is perfectly classified (42/42 correct, 100% recall)
+- **Grade B** has 6 samples confused (2→A, 4→C) — 79.31% recall
+- **Grade C** has 7 samples confused (1→A, 6→B) — 61.11% recall (weakest)
+- Total misclassifications: 13 out of 89 (14.61%)
 
 ### 4.4 Bootstrap Confidence Intervals
 
-The 95% CIs are tight (all within ~3% of point estimates), confirming reliable
-evaluation with the 444-sample test set.
+The 95% CIs are wider than the leaked version (accuracy: 77.53%–92.13%) due to
+the smaller test set (89 vs 444 samples), but still provide a reliable estimate.
 
 ---
 
@@ -190,68 +201,70 @@ evaluation with the 444-sample test set.
 
 | Model | Accuracy | Precision | Recall | F1 |
 |---|---|---|---|---|
-| **CNN** | **0.9482** | **0.9381** | **0.9305** | **0.9338** |
-| Random Forest | 0.9009 | 0.8826 | 0.8881 | 0.8852 |
-| SVM (RBF) | 0.8964 | 0.8777 | 0.9028 | 0.8822 |
+| **SVM (RBF)** | **0.8764** | **0.8473** | **0.8525** | **0.8425** |
+| **CNN** | 0.8539 | 0.8199 | 0.8014 | 0.8084 |
+| Random Forest | 0.8090 | 0.7695 | 0.7660 | 0.7629 |
 
 ### 5.2 Baseline Per-Class Breakdown
 
 **SVM (RBF):**
 ```
               precision    recall  f1-score   support
-   Grade A       0.98      0.94      0.96       207
-   Grade B       0.91      0.78      0.84       147
-   Grade C       0.74      0.99      0.84        90
+   Grade A       0.98      1.00      0.99        42
+   Grade B       0.91      0.72      0.81        29
+   Grade C       0.65      0.83      0.73        18
 ```
 
 **Random Forest:**
 ```
               precision    recall  f1-score   support
-   Grade A       0.97      0.95      0.96       207
-   Grade B       0.86      0.86      0.86       147
-   Grade C       0.82      0.86      0.84        90
+   Grade A       0.91      0.98      0.94        42
+   Grade B       0.83      0.66      0.73        29
+   Grade C       0.57      0.67      0.62        18
 ```
 
 ### 5.3 Analysis
 
-The CNN outperforms both baselines by a significant margin:
+With honest evaluation (no data leakage), **SVM outperforms the CNN**:
 
 | Comparison | Accuracy Δ | F1 Δ |
 |---|---|---|
-| CNN vs SVM | **+5.18%** | **+5.16%** |
-| CNN vs RF | **+4.73%** | **+4.86%** |
+| SVM vs CNN | **+2.25%** | **+3.41%** |
+| CNN vs RF | **+4.49%** | **+4.55%** |
 
-This is the opposite of the prior experiment (where baselines outperformed CNN by
-40%), confirming that **with sufficient data, the CNN's capacity becomes an
-advantage**. The CNN learns complex acoustic patterns that linear models cannot capture.
+This is expected for this dataset size: with only 89 test samples and 2,065
+training samples, the CNN's 102K parameters can overfit despite regularization.
+The SVM's simpler decision boundary generalizes better.
 
-**Grade C note:** SVM achieves 99% recall on Grade C (vs. 85.56% for CNN), suggesting
-the SVM's simpler decision boundary is more robust for the minority class. The CNN
-sacrifices some Grade C recall for much better overall performance.
+**Grade C note:** SVM achieves 83% recall on Grade C (vs. 61.11% for CNN),
+confirming that simpler models are more robust for the minority class.
 
 ---
 
-## 6. Root Cause Analysis (Comparison with Prior Experiment)
+## 6. Data Leakage Impact Analysis
 
-### 6.1 What Changed
+### 6.1 Before vs After Fix
 
-| Metric | Prior Experiment | Current Experiment |
-|---|---|---|
-| Raw files | 30 (2 classes) | 591 (3 classes) |
-| Augmented samples | 100 | 2,955 |
-| Test samples | 5 | 444 |
-| Best val accuracy | 80.00% | 91.89% |
-| Test accuracy | 40.00% | 94.82% |
-| F1-score | 0.2857 | 0.9338 |
-| CNN vs baselines | CNN worse (-40%) | CNN better (+5%) |
-| Bootstrap CI width | 0.80 (unreliable) | 0.04 (reliable) |
+| Metric | Before (Leaked) | After (Honest) | Δ |
+|---|---|---|---|
+| Test samples | 444 (augmented) | 89 (original only) | -355 |
+| CNN accuracy | 94.82% | 85.39% | **-9.43%** |
+| CNN F1 | 93.38% | 80.84% | **-12.54%** |
+| Best model | CNN | **SVM** | — |
 
-### 6.2 Key Insight
+### 6.2 Why the Drop?
 
-The prior experiment's failure was a **data quantity problem**, not an architectural
-or algorithmic one. The same CNN architecture achieves 94.82% accuracy with 2,955
-samples vs. 40% with 100 samples. The model-to-sample ratio improved from ~1,100
-params/sample to ~37 params/sample.
+The leaked pipeline placed augmented versions of the same file in both training
+and test sets. The model could match acoustic signatures of known recordings
+rather than learning generalizable features. With file-level split, the model
+must generalize to truly unseen recordings.
+
+### 6.3 Key Insight
+
+The previous "CNN outperforms baselines" conclusion was an artifact of data
+leakage. With proper evaluation, **SVM achieves the best generalization** on
+this dataset size. The CNN would benefit from more training data (1,000+ files
+per class) to realize its capacity advantage.
 
 ---
 
@@ -275,12 +288,12 @@ params/sample to ~37 params/sample.
 
 | File | Shape | Description |
 |---|---|---|
-| `X_train.npy` | (2067, 128, 35, 1) | Training features (augmented) |
-| `y_train.npy` | (2067,) | Training labels |
-| `X_val.npy` | (444, 128, 35, 1) | Validation features |
-| `y_val.npy` | (444,) | Validation labels |
-| `X_test.npy` | (444, 128, 35, 1) | Test features |
-| `y_test.npy` | (444,) | Test labels |
+| `X_train.npy` | (2065, 128, 35, 1) | Training features (augmented) |
+| `y_train.npy` | (2065,) | Training labels |
+| `X_val.npy` | (89, 128, 35, 1) | Validation features (original) |
+| `y_val.npy` | (89,) | Validation labels |
+| `X_test.npy` | (89, 128, 35, 1) | Test features (original) |
+| `y_test.npy` | (89,) | Test labels |
 
 ### `models/`
 
@@ -308,7 +321,8 @@ params/sample to ~37 params/sample.
 | Mel-spectrogram | ✓ | 128 bands, 2048 FFT, 512 hop |
 | Normalization | ✓ | Min-max to [0,1] float32 |
 | Channel dimension | ✓ | (128, 35, 1) |
-| Data augmentation | ✓ | Pitch shift, time stretch, noise (all files) |
+| Data augmentation | ✓ | Pitch shift, time stretch, noise (train only) |
+| **File-level split** | ✓ | **Split before augmentation — no leakage** |
 | Stratified split | ✓ | 70/15/15, class-balanced |
 | NumPy save | ✓ | 6 files |
 | CNN training | ✓ | Callbacks, early stopping, checkpointing, GPU support |
@@ -325,23 +339,24 @@ params/sample to ~37 params/sample.
 
 **Key findings:**
 
-1. **The CNN achieves 94.82% test accuracy** with 93.38% F1-score, outperforming
-   SVM (+5.2%) and Random Forest (+4.7%) on the same data.
+1. **SVM achieves the best generalization** (87.64% accuracy, 84.25% F1) on this
+   dataset size, outperforming the CNN by +2.25% accuracy and +3.41% F1.
 
-2. **Grade A is nearly perfectly classified** (99.27% F1), while Grade C is the
-   weakest class (88.51% F1) due to fewer training samples.
+2. **Data leakage inflated CNN results by ~9.4%** — the previous 94.82% accuracy
+   dropped to 85.39% after fixing the augmentation pipeline.
 
-3. **The 95% bootstrap CIs are tight** (accuracy: 92.79%–96.85%), confirming
-   reliable evaluation with 444 test samples.
+3. **Grade A is perfectly classified** (100% recall) by both CNN and SVM, while
+   Grade C remains the weakest class (61.11% CNN recall, 83% SVM recall).
 
-4. **Data quantity was the critical factor** — the same architecture that achieved
-   40% accuracy on 100 samples now achieves 94.82% on 2,955 samples.
+4. **The CNN's capacity is not yet justified** — with 2,065 training samples and
+   102K parameters, the model is at the edge of overfitting. More data (1,000+
+   files per class) would allow the CNN to realize its advantage over SVM.
 
-5. **The pipeline is production-ready** — adding more audio files to
-   `data/raw/grade_{a,b,c}/` and re-running `batch_process.py` + `train.py`
-   will scale to larger datasets without code changes.
+5. **The pipeline is production-ready** with correct data handling — adding more
+   audio files to `data/raw/grade_{a,b,c}/` and re-running will scale properly.
 
 **Recommendations:**
-- Collect more Grade C samples to balance the dataset and improve Grade C recall
-- Apply the best hyperparameters (lr=1e-3, dropout=0.3, batch=16) for final training
-- Consider ensemble methods (3-5 models with different seeds) for production deployment
+- **For thesis reporting:** Use SVM as the primary model (best generalization)
+- **For future work:** Collect 1,000+ files per class, then retrain CNN
+- **For immediate improvement:** Apply ensemble of SVM + CNN for robust predictions
+- **For Grade C:** Collect more Grade C recordings to balance the dataset

@@ -2,20 +2,22 @@
 batch_process.py — Batch Preprocessing & Stratified Split Runner with Augmentation
 
 Purpose:
-  Scans all raw audio files from data/raw/grade_{a,b,c}, runs them through
-  preprocess_audio(), applies 4x waveform-level augmentation to every file,
-  stacks into unified NumPy matrices, then performs a stratified 70/15/15
-  train/val/test split on the combined set of original + augmented samples.
+  Scans all raw audio files from data/raw/grade_{a,b,c}, splits them into
+  train/val/test at the FILE level first, then applies augmentation ONLY to
+  training files. This prevents data leakage where augmented versions of the
+  same file end up in different splits.
 
-Augmentation (applied to all files before split):
-  - Pitch shift (+2 semitones)
-  - Pitch shift (-2 semitones)
+Augmentation (applied to training files only):
+  - Pitch shift (+1 semitone)
+  - Pitch shift (-1 semitone)
   - Time stretch (1.1x)
   - Additive Gaussian noise
 
 Output (6 files in data/processed/):
-  301 files x (1 original + 4 augmented) = 1505 total samples
-  Stratified 70/15/15 split
+  Training:   N_train files × 5 (1 original + 4 augmented)
+  Validation: N_val files × 1 (original only)
+  Test:       N_test files × 1 (original only)
+  Stratified 70/15/15 split at file level
 
 Class labels:
   grade_a -> 0,  grade_b -> 1,  grade_c -> 2
@@ -35,7 +37,7 @@ import librosa
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-from src.preprocess import preprocess_audio, audio_to_mel, audio_to_mel_raw, SR
+from src.preprocess import preprocess_audio, audio_to_mel_raw, SR
 from src.augment import pitch_shift, time_stretch, add_noise
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,6 +66,28 @@ def _walk_audio_files(root: str):
                 yield path, label
 
 
+def _process_file(path: str, label: int, augment: bool) -> tuple:
+    """Process a single file. Returns list of (feature, label) tuples."""
+    samples = []
+
+    # Original
+    feat = preprocess_audio(path)
+    samples.append((feat, label))
+
+    # Augment only for training
+    if augment:
+        y_raw, sr = librosa.load(path, sr=SR, mono=True)
+        for aug_name, aug_fn in AUGMENTATIONS:
+            try:
+                y_aug = aug_fn(y_raw.copy(), sr)
+                feat_aug = audio_to_mel_raw(y_aug, sr)
+                samples.append((feat_aug, label))
+            except Exception as exc:
+                print(f"\n  ! {aug_name} failed for {os.path.relpath(path, BASE)}: {exc}")
+
+    return samples
+
+
 def run_pipeline() -> None:
     print("Scanning audio files ...")
     items = list(_walk_audio_files(RAW))
@@ -72,78 +96,96 @@ def run_pipeline() -> None:
         print("ERROR: No audio files found under data/raw/.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"  Found {len(items)} files.\n")
+    paths = [p for p, _ in items]
+    labels = [l for _, l in items]
+    print(f"  Found {len(paths)} files.\n")
 
-    paths = [p for p, l in items]
-    labels = [l for p, l in items]
+    # ── Step 1: Split at FILE level (before any processing) ──
+    print("Splitting files into train/val/test ...")
+    trainval_idx, test_idx = train_test_split(
+        np.arange(len(paths)), test_size=0.15, stratify=labels, random_state=42
+    )
+    train_idx, val_idx = train_test_split(
+        trainval_idx, test_size=0.15 / 0.85,
+        stratify=np.array(labels)[trainval_idx], random_state=42
+    )
+
+    train_paths = [paths[i] for i in train_idx]
+    train_labels = [labels[i] for i in train_idx]
+    val_paths = [paths[i] for i in val_idx]
+    val_labels = [labels[i] for i in val_idx]
+    test_paths = [paths[i] for i in test_idx]
+    test_labels = [labels[i] for i in test_idx]
+
+    print(f"  Train files: {len(train_paths)}")
+    print(f"  Val files:   {len(val_paths)}")
+    print(f"  Test files:  {len(test_paths)}\n")
 
     os.makedirs(OUT, exist_ok=True)
 
-    # Process every file: original + 4 augmented versions
-    X_all, y_all = [], []
-    print("Processing all files with augmentation ...")
-    for i in tqdm(range(len(paths)), desc="Processing"):
-        path = paths[i]
-        label = labels[i]
-        try:
-            feat = preprocess_audio(path)
-            X_all.append(feat)
-            y_all.append(label)
+    # ── Step 2: Process training files (with augmentation) ──
+    print("Processing training files (with augmentation) ...")
+    X_train, y_train = [], []
+    for i in tqdm(range(len(train_paths)), desc="Train"):
+        samples = _process_file(train_paths[i], train_labels[i], augment=True)
+        for feat, lbl in samples:
+            X_train.append(feat)
+            y_train.append(lbl)
 
-            y_raw, sr = librosa.load(path, sr=SR, mono=True)
-            for aug_name, aug_fn in AUGMENTATIONS:
-                try:
-                    y_aug = aug_fn(y_raw.copy(), sr)
-                    feat_aug = audio_to_mel_raw(y_aug, sr)
-                    X_all.append(feat_aug)
-                    y_all.append(label)
-                except Exception as exc:
-                    print(f"\n  ! {aug_name} failed for {os.path.relpath(path, BASE)}: {exc}")
-        except Exception as exc:
-            print(f"\n  \u2717 {os.path.relpath(path, BASE)} \u2014 {exc}")
+    X_train = np.stack(X_train, axis=0)
+    y_train = np.array(y_train, dtype=np.int32)
+    print(f"  ✓ X_train → {X_train.shape}  (files × 5 augmented)\n")
 
-    X_all = np.stack(X_all, axis=0)
-    y_all = np.array(y_all, dtype=np.int32)
-    print(f"  Total samples: {X_all.shape[0]} (original + 4x augmented)\n")
+    # ── Step 3: Process validation files (no augmentation) ──
+    print("Processing validation files ...")
+    X_val, y_val = [], []
+    for i in tqdm(range(len(val_paths)), desc="Val"):
+        samples = _process_file(val_paths[i], val_labels[i], augment=False)
+        for feat, lbl in samples:
+            X_val.append(feat)
+            y_val.append(lbl)
 
-    # Stratified 70/15/15 split on ALL samples
-    train_idx, test_idx = train_test_split(
-        np.arange(len(X_all)), test_size=0.15, stratify=y_all, random_state=42
-    )
-    train_idx, val_idx = train_test_split(
-        train_idx, test_size=0.15 / 0.85,
-        stratify=y_all[train_idx], random_state=42
-    )
+    X_val = np.stack(X_val, axis=0)
+    y_val = np.array(y_val, dtype=np.int32)
+    print(f"  ✓ X_val → {X_val.shape}\n")
 
-    splits = {
-        "train": train_idx,
-        "val":   val_idx,
-        "test":  test_idx,
-    }
+    # ── Step 4: Process test files (no augmentation) ──
+    print("Processing test files ...")
+    X_test, y_test = [], []
+    for i in tqdm(range(len(test_paths)), desc="Test"):
+        samples = _process_file(test_paths[i], test_labels[i], augment=False)
+        for feat, lbl in samples:
+            X_test.append(feat)
+            y_test.append(lbl)
 
-    for split_name, indices in splits.items():
-        X_arr = X_all[indices]
-        y_arr = y_all[indices]
+    X_test = np.stack(X_test, axis=0)
+    y_test = np.array(y_test, dtype=np.int32)
+    print(f"  ✓ X_test → {X_test.shape}\n")
 
-        name_x = f"X_{split_name}.npy"
-        name_y = f"y_{split_name}.npy"
-        np.save(os.path.join(OUT, name_x), X_arr)
-        np.save(os.path.join(OUT, name_y), y_arr)
-        print(f"  \u2713 {name_x}  \u2192  {X_arr.shape}")
-        print(f"  \u2713 {name_y}  \u2192  {y_arr.shape}")
+    # ── Step 5: Save ──
+    print("Saving ...")
+    np.save(os.path.join(OUT, "X_train.npy"), X_train)
+    np.save(os.path.join(OUT, "y_train.npy"), y_train)
+    np.save(os.path.join(OUT, "X_val.npy"), X_val)
+    np.save(os.path.join(OUT, "y_val.npy"), y_val)
+    np.save(os.path.join(OUT, "X_test.npy"), X_test)
+    np.save(os.path.join(OUT, "y_test.npy"), y_test)
+    print(f"  ✓ Saved 6 files to {OUT}/\n")
 
-    # Summary
-    print("\nClass distribution:")
+    # ── Summary ──
+    print("Class distribution:")
     for grade_name, label in LABEL_MAP.items():
-        y_train = np.load(os.path.join(OUT, "y_train.npy"))
-        y_val   = np.load(os.path.join(OUT, "y_val.npy"))
-        y_test  = np.load(os.path.join(OUT, "y_test.npy"))
         train_c = int((y_train == label).sum())
         val_c   = int((y_val   == label).sum())
         test_c  = int((y_test  == label).sum())
         print(f"  {grade_name} ({label}):  train={train_c}  val={val_c}  test={test_c}")
 
-    print(f"\nAugmentation: all files expanded 5x before split")
+    total = len(y_train) + len(y_val) + len(y_test)
+    print(f"\nTotal samples: {total}")
+    print(f"  Train: {len(y_train)}  (augmented 5×)")
+    print(f"  Val:   {len(y_val)}  (original only)")
+    print(f"  Test:  {len(y_test)}  (original only)")
+    print(f"\nNo data leakage: file-level split applied before augmentation.")
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ def main() -> None:
     print(f"  X_val:   {X_val.shape}  y_val:   {y_val.shape}")
 
     num_classes = len(np.unique(y_train))
-    model = build_cnn(input_shape=X_train.shape[1:], num_classes=num_classes,  dropout=0.3)
+    model = build_cnn(input_shape=X_train.shape[1:], num_classes=num_classes,  dropout=0.3, l2_reg=1e-3)
     model.compile(
         optimizer=Adam(learning_rate=LR),
         loss="sparse_categorical_crossentropy",

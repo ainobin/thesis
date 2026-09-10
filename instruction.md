@@ -340,6 +340,35 @@ Consider using a pretrained audio model:
 
 ---
 
+## Running the Streamlit Demo App
+
+The project includes an interactive web demo (`show-demo/app.py`) that allows real-time brick quality assessment via audio input.
+
+### Features
+- **Live Mic Recording**: Click the microphone button to record a brick strike directly in the browser
+- **File Upload**: Upload a pre-recorded `.wav` file as a backup
+- **Mel-Spectrogram Visualization**: Displays the time-frequency signature of the audio
+- **AI Prediction**: Shows the predicted grade (A/B/C) with confidence scores
+
+### How to Run
+
+```bash
+source venv/bin/activate
+export LD_LIBRARY_PATH=$(python -c "import nvidia; import os; base=os.path.dirname(nvidia.__path__[0]); print(':'.join([os.path.join(base,'nvidia',d,'lib') for d in ['cublas','cudnn','cuda_runtime','cufft','cusolver','cusparse','curand']]))")
+
+cd show-demo
+streamlit run app.py
+```
+
+The app will open in your browser at `http://localhost:8501`.
+
+### Prerequisites
+- A trained model at `models/best.keras` (run the training pipeline first)
+- `streamlit` installed (`pip install -r requirements.txt`)
+- Browser microphone access for live recording
+
+---
+
 ## Quick Reference Command Sequence
 
 ```bash

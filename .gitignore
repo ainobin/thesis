@@ -20,7 +20,7 @@ venv/
 models/checkpoints/
 models/exported/
 *.h5
-*.keras
+# *.keras
 *.tflite
 
 # Logs
